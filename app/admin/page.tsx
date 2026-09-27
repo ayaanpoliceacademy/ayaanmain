@@ -384,9 +384,40 @@ function BatchesTab() {
   const [list, setList] = useState<any[]>([]);
   const [form, setForm] = useState({ ...EMPTY_BATCH });
   const [editing, setEditing] = useState<string | null>(null);
+  const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
+  const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
+  const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
 
   const load = () => fetch("/api/admin/batches").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const slug = String(c.slug || "").trim();
+          const title: string = String(c.title || "").trim();
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          if (slug) return slug.toUpperCase().replace(/-/g, " ");
+          return title;
+        }).filter(Boolean);
+        const uniq = Array.from(new Set(opts));
+        if (uniq.length > 0) setCourseOptions(uniq);
+      }
+    }).catch(() => {});
+    fetch("/api/mediums").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d)) {
+        const names = d.map((m: any) => String(m.name || m)).filter(Boolean);
+        if (names.length > 0) setMediumOptions(names);
+      }
+    }).catch(() => {});
+    fetch("/api/branches").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d)) {
+        const names = d.map((b: any) => String(b.name || b)).filter(Boolean);
+        if (names.length > 0) setBranchOptions(names);
+      }
+    }).catch(() => {});
+  }, []);
 
   const save = async () => {
     const r = await fetch("/api/admin/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
@@ -445,12 +476,12 @@ function BatchesTab() {
         <div className="mt-4 grid gap-3">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Batch name * (e.g., October 2026 Morning Batch)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           <div className="grid grid-cols-3 gap-2">
-            <select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>SI</option><option>Constable</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>Army</option><option>UPSC</option></select>
-            <select value={form.medium} onChange={(e) => setForm({ ...form, medium: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Telugu</option><option>English</option></select>
+            <select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+            <select value={form.medium} onChange={(e) => setForm({ ...form, medium: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{mediumOptions.map((m) => <option key={m} value={m}>{m}</option>)}</select>
             <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Residential</option><option>Offline</option><option>Online</option></select>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <select value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Warangal</option><option>Hyderabad</option><option>Hanamkonda</option><option>Bollikunta (Residential)</option></select>
+            <select value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
             <input value={form.slot} onChange={(e) => setForm({ ...form, slot: e.target.value })} placeholder="Slot (e.g., Morning 6-9 AM)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
             <input value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} placeholder="Days (e.g., Mon–Sat)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           </div>
@@ -1586,17 +1617,18 @@ function FeeConfigTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const courses = ["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"];
+  const [courses, setCourses] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
   const modes = ["Residential", "Offline", "Online"] as const;
 
   const load = async () => {
     setLoading(true);
     try {
-      const [fr, dr, mr, br] = await Promise.all([
+      const [fr, dr, mr, br, cr] = await Promise.all([
         fetch("/api/admin/fees", { cache: "no-store" }),
         fetch("/api/durations", { cache: "no-store" }),
         fetch("/api/mediums", { cache: "no-store" }),
         fetch("/api/branches", { cache: "no-store" }),
+        fetch("/api/courses", { cache: "no-store" }),
       ]);
       const fd = await fr.json();
       if (Array.isArray(fd)) setFees(fd);
@@ -1606,6 +1638,19 @@ function FeeConfigTab() {
       if (Array.isArray(md)) setMediums(md.map((m: any) => ({ id: m.id, name: m.name })));
       const bd = await br.json();
       if (Array.isArray(bd)) setBranches(bd.map((b: any) => ({ id: b.id, name: b.name })));
+      const cd = await cr.json();
+      if (Array.isArray(cd) && cd.length > 0) {
+        const opts: string[] = cd.map((c: any) => {
+          const slug = String(c.slug || "").trim();
+          const title: string = String(c.title || "").trim();
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          if (slug) return slug.toUpperCase().replace(/-/g, " ");
+          return title;
+        }).filter(Boolean);
+        const uniq = Array.from(new Set(opts));
+        if (uniq.length > 0) setCourses(uniq);
+      }
     } catch {}
     setLoading(false);
   };
@@ -2008,15 +2053,18 @@ function MastersTab() {
   const [addons, setAddons] = useState<any[]>([]);
   const [mediums, setMediums] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>([]);
   const [dForm, setDForm] = useState({ id: "", name: "", months: "", active: true });
   const [aForm, setAForm] = useState({ id: "", name: "", fee: "", courses: "", active: true });
   const [mForm, setMForm] = useState({ id: "", name: "", active: true });
   const [bForm, setBForm] = useState({ id: "", name: "", address: "", phone: "", active: true });
+  const [cForm, setCForm] = useState({ id: "", slug: "", title: "", fee: "", duration: "", eligibility: "" });
   const load = () => {
     fetch("/api/admin/durations").then((r) => r.json()).then((d) => Array.isArray(d) && setDurations(d)).catch(() => {});
     fetch("/api/admin/addons").then((r) => r.json()).then((d) => Array.isArray(d) && setAddons(d)).catch(() => {});
     fetch("/api/admin/mediums").then((r) => r.json()).then((d) => Array.isArray(d) && setMediums(d)).catch(() => {});
     fetch("/api/admin/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranches(d)).catch(() => {});
+    fetch("/api/admin/courses").then((r) => r.json()).then((d) => Array.isArray(d) && setCourses(d)).catch(() => {});
   };
   useEffect(() => { load(); }, []);
   const saveD = async () => {
@@ -2029,9 +2077,9 @@ function MastersTab() {
     const r = await fetch("/api/admin/addons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: aForm.id || undefined, name: aForm.name, fee: Number(aForm.fee), courses: aForm.courses, active: aForm.active }) });
     if (r.ok) { setAForm({ id: "", name: "", fee: "", courses: "", active: true }); load(); } else alert("Failed");
   };
-  const del = async (kind: "d" | "a" | "m" | "b", id: string) => {
+  const del = async (kind: "d" | "a" | "m" | "b" | "c", id: string) => {
     if (!confirm("Delete?")) return;
-    const ep = kind === "d" ? "durations" : kind === "a" ? "addons" : kind === "m" ? "mediums" : "branches";
+    const ep = kind === "d" ? "durations" : kind === "a" ? "addons" : kind === "m" ? "mediums" : kind === "b" ? "branches" : "courses";
     const r = await fetch(`/api/admin/${ep}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
@@ -2049,6 +2097,12 @@ function MastersTab() {
     const r = await fetch("/api/admin/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: bForm.id || undefined, name: bForm.name, address: bForm.address, phone: bForm.phone, active: bForm.active }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setBForm({ id: "", name: "", address: "", phone: "", active: true }); load(); } else alert(d.error || "Failed (name must be unique)");
+  };
+  const saveC = async () => {
+    if (!cForm.slug.trim() || !cForm.title.trim()) return alert("Slug and title required");
+    const r = await fetch("/api/admin/courses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cForm.id || undefined, slug: cForm.slug, title: cForm.title, fee: cForm.fee, duration: cForm.duration, eligibility: cForm.eligibility }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setCForm({ id: "", slug: "", title: "", fee: "", duration: "", eligibility: "" }); load(); } else alert(d.error || "Failed");
   };
   return (
     <div className="grid lg:grid-cols-2 gap-6">
@@ -2155,6 +2209,37 @@ function MastersTab() {
             <label className="flex items-center gap-1 text-xs px-2"><input type="checkbox" checked={bForm.active} onChange={(e) => setBForm({ ...bForm, active: e.target.checked })} /> Active</label>
             <button onClick={saveB} className="px-4 py-2 rounded-full bg-navy-900 text-white text-xs">{bForm.id ? "Update" : "Add"}</button>
             {bForm.id && <button onClick={() => setBForm({ id: "", name: "", address: "", phone: "", active: true })} className="text-xs text-slate-500">Clear</button>}
+          </div>
+        </div>
+      </div>
+      <div className="card p-6">
+        <h2 className="font-semibold text-navy-900">Courses • {courses.length}</h2>
+        <p className="text-xs text-slate-500">Course options for registration, batches & fee config. Changes reflect instantly in admission form. Delete blocked if batches/admissions use it.</p>
+        <div className="mt-4 grid gap-2 max-h-[50vh] overflow-auto pr-1">
+          {courses.map((c: any) => (
+            <div key={c.id} className="p-3 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">{c.title} <span className="text-xs text-slate-500">• {c.slug}</span></div>
+                  <div className="text-xs text-slate-500 mt-0.5">{c.fee ? `Fee: ${c.fee}` : ""} {c.duration ? `• ${c.duration}` : ""}</div>
+                </div>
+                <div className="flex gap-1 items-center shrink-0">
+                  <button onClick={() => setCForm({ id: c.id, slug: c.slug, title: c.title, fee: c.fee || "", duration: c.duration || "", eligibility: c.eligibility || "" })} className="px-2 py-1 rounded-full bg-white border text-xs">Edit</button>
+                  <button onClick={() => del("c", c.id)} className="px-2 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs">✕</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-2 p-3 rounded-xl bg-slate-50 border">
+          <input value={cForm.slug} onChange={(e) => setCForm({ ...cForm, slug: e.target.value })} placeholder="Slug (e.g., si, constable, upsc)" className="px-3 py-2 rounded-xl border text-sm bg-white" />
+          <input value={cForm.title} onChange={(e) => setCForm({ ...cForm, title: e.target.value })} placeholder="Title (e.g., Sub-Inspector (SI))" className="px-3 py-2 rounded-xl border text-sm bg-white" />
+          <input value={cForm.fee} onChange={(e) => setCForm({ ...cForm, fee: e.target.value })} placeholder="Fee (e.g., ₹35,000 Residential)" className="px-3 py-2 rounded-xl border text-sm bg-white" />
+          <input value={cForm.duration} onChange={(e) => setCForm({ ...cForm, duration: e.target.value })} placeholder="Duration (e.g., 3-4 Months)" className="px-3 py-2 rounded-xl border text-sm bg-white" />
+          <input value={cForm.eligibility} onChange={(e) => setCForm({ ...cForm, eligibility: e.target.value })} placeholder="Eligibility (e.g., Graduation)" className="px-3 py-2 rounded-xl border text-sm bg-white" />
+          <div className="flex gap-2 items-center">
+            <button onClick={saveC} className="px-4 py-2 rounded-full bg-navy-900 text-white text-xs">{cForm.id ? "Update" : "Add"}</button>
+            {cForm.id && <button onClick={() => setCForm({ id: "", slug: "", title: "", fee: "", duration: "", eligibility: "" })} className="text-xs text-slate-500">Clear</button>}
           </div>
         </div>
       </div>
@@ -2701,7 +2786,7 @@ const ADMIN_TABS: { id: string; label: string; desc: string }[] = [
   { id: "admissions", label: "Admissions", desc: "Applications & approvals" },
   { id: "rag", label: "RAG", desc: "Chatbot knowledge" },
   { id: "batches", label: "Batches", desc: "Course batches & capacity" },
-  { id: "masters", label: "Masters", desc: "Durations / Addons / Mediums / Branches" },
+  { id: "masters", label: "Masters", desc: "Courses / Durations / Addons / Mediums / Branches" },
   { id: "banner", label: "Banner", desc: "Top announcement" },
   { id: "fees", label: "Fee Config", desc: "Fee per course×mode×duration×medium×branch" },
   { id: "admins", label: "Admins", desc: "Manage admin users (super_admin only)" },

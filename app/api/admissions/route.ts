@@ -41,6 +41,29 @@ export async function POST(req: NextRequest) {
   if (!isPhone(String(phone))) return NextResponse.json({ error: "phone must be 10 digits" }, { status: 400 });
   if (!isEmail(String(email))) return NextResponse.json({ error: "Valid email required" }, { status: 400 });
 
+  // Branch validation — must exist and be active (admin Masters → Branches)
+  if (branch) {
+    const br = await prisma.branch.findFirst({ where: { name: String(branch).trim(), active: true } });
+    if (!br) return NextResponse.json({ error: "Invalid or inactive branch — please select from available branches" }, { status: 400 });
+  }
+  // Medium validation — must exist and be active
+  if (medium) {
+    const m = await prisma.medium.findFirst({ where: { name: String(medium).trim(), active: true } });
+    if (!m) return NextResponse.json({ error: "Invalid or inactive medium" }, { status: 400 });
+  }
+  // Course validation — must exist in Course table (by slug or title, case-insensitive)
+  if (course) {
+    const c = String(course).trim();
+    const exists = await prisma.course.findFirst({ where: { OR: [{ slug: c.toLowerCase() }, { title: c }, { slug: c }, { title: { equals: c, mode: "insensitive" } }] } });
+    // Allow legacy short codes like "SI" that map to courseDetails title parentheses; fallback check against fee configs short codes
+    if (!exists) {
+      const legacyCourses = ["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC", "Online"];
+      if (!legacyCourses.includes(c) && !legacyCourses.map((x) => x.toLowerCase()).includes(c.toLowerCase())) {
+        return NextResponse.json({ error: `Invalid course: ${c}` }, { status: 400 });
+      }
+    }
+  }
+
   // Duration (snapshot)
   let durationName = "3 Months";
   let durationMonths = 3;

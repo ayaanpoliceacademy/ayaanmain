@@ -26,6 +26,7 @@ export default function AdmissionPage() {
   const [feeConfigs, setFeeConfigs] = useState<{ course: string; mode: string; duration: string; medium: string; branch: string; amount: number }[]>([]);
   const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
   const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
+  const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; id?: string; applicationId?: string; correctionToken?: string; error?: string } | null>(null);
 
@@ -47,6 +48,26 @@ export default function AdmissionPage() {
         if (names.length > 0) {
           setBranchOptions(names);
           setForm((f) => (names.includes(f.branch) ? f : { ...f, branch: names[0], batchId: "" }));
+        }
+      }
+    }).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        // Derive short course codes from DB courses: use slug upper-cased and title in parentheses for display, keep backward-compat with existing short codes
+        const opts: string[] = d.map((c: any) => {
+          const slug = String(c.slug || "").trim();
+          const title: string = String(c.title || "").trim();
+          // Prefer short code in parentheses e.g. "Sub-Inspector (SI)" → "SI", else use slug upper
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          if (slug) return slug.toUpperCase().replace(/-/g, " ");
+          return title;
+        }).filter(Boolean);
+        // Deduplicate, keep stable order
+        const uniq = Array.from(new Set(opts));
+        if (uniq.length > 0) {
+          setCourseOptions(uniq);
+          setForm((f) => (uniq.includes(f.course) ? f : { ...f, course: uniq[0], batchId: "" }));
         }
       }
     }).catch(() => {});
@@ -249,7 +270,7 @@ export default function AdmissionPage() {
             {step === 1 && (
               <div className="grid gap-4">
                 <div className="grid sm:grid-cols-3 gap-3">
-                  <div><label className="text-xs font-medium text-slate-700">Course *</label><select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value, batchId: "" })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>SI</option><option>Constable</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>Army</option><option>UPSC</option></select></div>
+                  <div><label className="text-xs font-medium text-slate-700">Course *</label><select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value, batchId: "" })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
                   <div><label className="text-xs font-medium text-slate-700">Duration *</label><select value={form.durationId} onChange={(e) => setForm({ ...form, durationId: e.target.value, batchId: "" })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option value="">Select duration…</option>{durations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
                   <div><label className="text-xs font-medium text-slate-700">Branch *</label><select value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value, batchId: "" })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
                 </div>
