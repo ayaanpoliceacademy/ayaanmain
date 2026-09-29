@@ -59,6 +59,7 @@ export default function AccountPage() {
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
+    try { localStorage.setItem("ayaan_auth_changed", Date.now().toString()); window.dispatchEvent(new Event("ayaan_auth_changed")); } catch {}
     router.push("/login");
   };
 

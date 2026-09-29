@@ -25,7 +25,7 @@ async function deleteSessionByToken(token: string) {
 }
 
 const ROLE_DEFAULT_TABS: Record<string, string[]> = {
-  super_admin: ["dashboard", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel"],
+  super_admin: ["dashboard", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel", "email"],
   finance: ["dashboard", "payments", "finance", "dues", "expenses", "orders", "fees"],
   admissions: ["dashboard", "admissions", "leads", "students", "alumni"],
 };
@@ -58,6 +58,7 @@ const PATH_TAB_MAP: Record<string, string> = {
   admins: "admins",
   users: "admins",
   carousel: "carousel",
+  email: "email",
 };
 
 export function getAllowedTabsForAdmin(admin: { role: string; permissions?: string[] | null }): string[] {

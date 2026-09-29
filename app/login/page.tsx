@@ -19,8 +19,11 @@ export default function LoginPage() {
     const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: id, password: pw }) });
     const data = await r.json();
     setLoading(false);
-    if (r.ok) router.push(data.mustChangePassword ? "/change-password" : "/account");
-    else setErr(data.error || "Login failed");
+    if (r.ok) {
+      try { localStorage.setItem("ayaan_auth_changed", Date.now().toString()); window.dispatchEvent(new Event("ayaan_auth_changed")); } catch {}
+      router.push(data.mustChangePassword ? "/change-password" : "/account");
+      router.refresh();
+    } else setErr(data.error || "Login failed");
   };
 
   return (

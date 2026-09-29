@@ -4,6 +4,7 @@ import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { supabaseAdmin } from "@/lib/supabase";
 import { newStudentId, newDigitalIdNo, addMonths, audit } from "@/lib/identifiers";
+import { sendEmail, tplClarification, tplDiscount, tplAdmissionApproved, tplAdmissionRejected } from "@/lib/email";
 
 function generateInitialPassword(): string {
   // 12-char random, e.g. Ayaan@A1B2C3 — per-student, not shared
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       data: { status: "clarification_required", clarificationNote: note, clarificationToken: token },
     });
     await audit("admission", id, actor, "clarification_requested", note);
+    try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplClarification(upd, note); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
     return NextResponse.json({ ok: true, token });
   }
 
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
         data: { discount, discountStatus: "approved", totalFee, finalFee: totalFee, feeLocked: true, balanceDue: Math.max(0, totalFee - (admission.payingNow || 0)) },
       });
       await audit("admission", id, actor, "discount_approved", `Discount ₹${discount} applied & fee locked at ₹${totalFee}`);
+      try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplDiscount(upd, "approved", discount); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
       return NextResponse.json({ ok: true, locked: true, totalFee });
     }
     await prisma.admission.update({
@@ -73,6 +76,7 @@ export async function POST(req: NextRequest) {
       data: { discount, discountStatus: "requested", status: "discount_pending", totalFee, balanceDue: Math.max(0, totalFee - (admission.payingNow || 0)) },
     });
     await audit("admission", id, actor, "discount_requested", `Discount ₹${discount} requested — needs super_admin approval`);
+    try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplDiscount(upd, "requested", discount); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
     return NextResponse.json({ ok: true, locked: false, totalFee });
   }
 
@@ -86,6 +90,7 @@ export async function POST(req: NextRequest) {
         data: { discount: 0, discountPercent: 0, discountStatus: "rejected", status: "pending", totalFee, balanceDue: Math.max(0, totalFee - (admission.payingNow || 0)) },
       });
       await audit("admission", id, actor, "discount_rejected", "Discount request rejected");
+      try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplDiscount(upd, "rejected"); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
       return NextResponse.json({ ok: true });
     }
     const totalFee = Math.max(0, (admission.amount || 0) + (admission.addonFees || 0) - (admission.discount || 0));
@@ -94,6 +99,7 @@ export async function POST(req: NextRequest) {
       data: { discountStatus: "approved", status: "pending", totalFee, finalFee: totalFee, feeLocked: true, balanceDue: Math.max(0, totalFee - (admission.payingNow || 0)) },
     });
     await audit("admission", id, actor, "discount_approved", `Fee locked at ₹${totalFee}`);
+    try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplDiscount(upd, "approved"); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
     return NextResponse.json({ ok: true, totalFee });
   }
 
@@ -238,6 +244,7 @@ export async function POST(req: NextRequest) {
 
       await audit("admission", id, actor, "admission_approved", `Student ${result.studentId}, fee locked ₹${result.finalFee}`);
       await audit("user", result.user.id, actor, "student_account_created", `Login ${result.user.email}, initial password + must-change`);
+      try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplAdmissionApproved(upd, { studentId: result.studentId, email: result.user.email, tempPassword: initialPassword }); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
       return NextResponse.json({
         ok: true,
         studentId: result.studentId,
@@ -256,6 +263,7 @@ export async function POST(req: NextRequest) {
   if (action === "reject") {
     await prisma.admission.update({ where: { id }, data: { status: "rejected", rejectedAt: new Date() } });
     await audit("admission", id, actor, "application_rejected");
+    try { const upd = await prisma.admission.findUnique({ where: { id }}); if (upd) { const tpl = tplAdmissionRejected(upd); sendEmail({ to: upd.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } } catch {}
     return NextResponse.json({ ok: true });
   }
 

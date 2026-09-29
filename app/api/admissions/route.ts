@@ -6,6 +6,7 @@ import { newApplicationId, addMonths, audit } from "@/lib/identifiers";
 import { fallbackFee } from "@/lib/fees";
 import { isEmail, isPhone, sanitizeText } from "@/lib/validators";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { sendEmail, tplAdmissionSubmitted } from "@/lib/email";
 async function getFee(course: string, mode: string, duration?: string, medium?: string, branch?: string) {
   try {
     // Lookup order: exact → peel branch → peel medium → peel duration → Base ("","","") → hardcoded fallback
@@ -35,11 +36,12 @@ export async function POST(req: NextRequest) {
   // Honeypot for bots — if filled, silently reject as success to avoid probing
   if (body.website || body.honeypot || body.url) return NextResponse.json({ ok: true, id: "HP-" + Date.now(), applicationId: "HP", status: "pending" });
 
-  const { name, fatherName, phone, email, address, reference, branch, course, courseType, medium, mode, batchId, durationId, addonIds, photo, payments } = body;
+  const { name, fatherName, phone, email, address, reference, aadharCardNumber, branch, course, courseType, medium, mode, batchId, durationId, addonIds, photo, payments } = body;
 
-  if (!name || !fatherName || !phone || !email || !address || !branch || !course) return NextResponse.json({ error: "name, fatherName, phone, email, address, branch, course required" }, { status: 400 });
+  if (!name || !fatherName || !phone || !email || !address || !branch || !course || !aadharCardNumber) return NextResponse.json({ error: "name, fatherName, phone, email, address, aadhar, branch, course required" }, { status: 400 });
   if (!isPhone(String(phone))) return NextResponse.json({ error: "phone must be 10 digits" }, { status: 400 });
   if (!isEmail(String(email))) return NextResponse.json({ error: "Valid email required" }, { status: 400 });
+  if (!/^[0-9]{12}$/.test(String(aadharCardNumber).trim())) return NextResponse.json({ error: "Aadhar must be 12 digits" }, { status: 400 });
 
   // Branch validation — must exist and be active (admin Masters → Branches)
   if (branch) {
@@ -162,6 +164,7 @@ export async function POST(req: NextRequest) {
       email: String(email).trim().toLowerCase(),
       address: sanitizeText(String(address), 500),
       reference: sanitizeText(String(reference || ""), 100),
+      aadharCardNumber: String(aadharCardNumber).trim(),
       branch: sanitizeText(String(branch), 100),
       course: sanitizeText(String(course), 50),
       courseType: sanitizeText(String(courseType || "Regular"), 20),
@@ -209,6 +212,12 @@ export async function POST(req: NextRequest) {
   );
 
   await audit("admission", entry.id, entry.email, "application_submitted", `Application ${applicationId}`);
+
+  // Email — admission status (pending review) — fire-and-forget, never blocks the response
+  try {
+    const tpl = tplAdmissionSubmitted(entry);
+    sendEmail({ to: entry.email, subject: tpl.subject, html: tpl.html }).catch(() => {});
+  } catch {}
 
   // NOTE: no user/student account is created here — only after admin approval.
   // correctionToken is returned once so the applicant can save their correction link (no portal access).

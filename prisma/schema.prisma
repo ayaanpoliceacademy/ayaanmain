@@ -64,6 +64,7 @@ model Admission {
   email           String
   address         String
   reference       String?
+  aadharCardNumber String? // 12-digit Aadhar, mandatory for new admissions
   branch          String
   course          String
   courseType      String

@@ -3,6 +3,7 @@ import { requireStudentSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { uploadDataUrl } from "@/lib/storage";
 import { audit } from "@/lib/identifiers";
+import { sendEmail, tplPaymentAck } from "@/lib/email";
 
 const METHODS = ["cash", "upi", "bank", "razorpay"];
 
@@ -85,5 +86,6 @@ export async function POST(req: NextRequest) {
     },
   });
   await audit("payment", pay.id, user.email, "payment_submitted", `${m} ₹${amt} for ${adm.applicationId || adm.id}`);
+  try { const tpl = tplPaymentAck(adm, pay, "pending_verification"); sendEmail({ to: adm.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); } catch {}
   return NextResponse.json({ ok: true, payment: pay });
 }

@@ -10,7 +10,10 @@ function CorrectForm() {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", fatherName: "", phone: "", address: "", reference: "", branch: "", course: "", courseType: "", medium: "", mode: "", batchId: "" });
+  const [form, setForm] = useState({ name: "", fatherName: "", phone: "", address: "", reference: "", aadharCardNumber: "", branch: "", course: "", courseType: "", medium: "", mode: "", batchId: "" });
+  const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
+  const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
+  const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
 
   useEffect(() => {
     if (!token) { setErr("Missing correction link token."); return; }
@@ -20,13 +23,30 @@ function CorrectForm() {
         if (!ok) setErr(d.error || "Invalid link");
         else {
           setData(d);
-          setForm({ name: d.name || "", fatherName: d.fatherName || "", phone: d.phone || "", address: d.address || "", reference: d.reference || "", branch: d.branch || "", course: d.course || "", courseType: d.courseType || "", medium: d.medium || "", mode: d.mode || "", batchId: d.batchId || "" });
+          setForm({ name: d.name || "", fatherName: d.fatherName || "", phone: d.phone || "", address: d.address || "", reference: d.reference || "", aadharCardNumber: d.aadharCardNumber || "", branch: d.branch || "", course: d.course || "", courseType: d.courseType || "", medium: d.medium || "", mode: d.mode || "", batchId: d.batchId || "" });
         }
       })
       .catch(() => setErr("Failed to load"));
+    fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
+    fetch("/api/mediums").then((r) => r.json()).then((d) => Array.isArray(d) && setMediumOptions(d.map((m: any) => m.name))).catch(() => {});
   }, [token]);
 
   const submit = async () => {
+    if (!form.name.trim() || !form.fatherName.trim()) { setErr("Name and Father Name required"); return; }
+    if (!/^[0-9]{10}$/.test(form.phone.trim())) { setErr("Valid 10-digit mobile required"); return; }
+    if (!/^[0-9]{12}$/.test(String(form.aadharCardNumber || "").trim())) { setErr("Valid 12-digit Aadhar required"); return; }
+    if (!form.address.trim()) { setErr("Address required"); return; }
     setSaving(true);
     setErr("");
     const r = await fetch("/api/applications/correct", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...form }) });
@@ -67,13 +87,14 @@ function CorrectForm() {
             </div>
             <div><label className="text-xs font-medium">Mobile * (10 digits)</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm" /></div>
             <div><label className="text-xs font-medium">Address *</label><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm" /></div>
+            <div><label className="text-xs font-medium">Aadhar * (12 digits)</label><input value={form.aadharCardNumber} onChange={(e) => setForm({ ...form, aadharCardNumber: e.target.value.replace(/\D/g, "").slice(0,12) })} placeholder="123456789012" inputMode="numeric" maxLength={12} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm tracking-widest" /></div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div><label className="text-xs font-medium">Reference</label><input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm" /></div>
-              <div><label className="text-xs font-medium">Branch</label><select value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm"><option>Warangal</option><option>Hyderabad</option><option>Hanamkonda</option><option>Bollikunta (Residential)</option></select></div>
+              <div><label className="text-xs font-medium">Branch</label><select value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm">{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select></div>
             </div>
             <div className="grid sm:grid-cols-3 gap-3">
-              <div><label className="text-xs font-medium">Course</label><select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm"><option>SI</option><option>Constable</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>Army</option><option>UPSC</option></select></div>
-              <div><label className="text-xs font-medium">Medium</label><select value={form.medium} onChange={(e) => setForm({ ...form, medium: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm"><option>Telugu</option><option>English</option></select></div>
+              <div><label className="text-xs font-medium">Course</label><select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm">{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="text-xs font-medium">Medium</label><select value={form.medium} onChange={(e) => setForm({ ...form, medium: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm">{mediumOptions.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
               <div><label className="text-xs font-medium">Mode</label><select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm"><option>Residential</option><option>Offline</option><option>Online</option></select></div>
             </div>
             <button onClick={submit} disabled={saving} className="btn-primary justify-center disabled:opacity-50">{saving ? "Submitting…" : "Resubmit for Review →"}</button>

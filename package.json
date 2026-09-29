@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});console.log('cleaned .next')\"",
@@ -17,6 +17,7 @@
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.112.4",
     "next": "14.2.35",
+    "nodemailer": "^10.0.11",
     "razorpay": "^2.9.8",
     "react": "18.3.1",
     "react-dom": "18.3.1"
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "20.12.12",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "autoprefixer": "10.4.19",

@@ -15,7 +15,7 @@ export default function RagBot() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("/api/admin/rag")
+    fetch("/api/admin/rag", { credentials: "same-origin" })
       .then((r) => r.json())
       .then((d) => Array.isArray(d) && d.length && setKb(d))
       .catch(() => {});

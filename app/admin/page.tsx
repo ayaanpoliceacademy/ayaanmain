@@ -5,7 +5,7 @@ import { DonutChart, GroupedBarChart, CHART_COLORS } from "@/components/Charts";
 import ReceiptView from "@/components/ReceiptView";
 import { FALLBACK_FEE as FEE_FALLBACK } from "@/lib/fees";
 
-type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel";
+type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel" | "email";
 type Role = "super_admin" | "finance" | "admissions";
 
 const roleTabs: Record<Role, Tab[]> = {
@@ -64,7 +64,7 @@ export default function AdminPage() {
   useEffect(() => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
-    fetch("/api/admin/login", { signal: ctl.signal, cache: "no-store" })
+    fetch("/api/admin/login", { credentials: "same-origin",  signal: ctl.signal, cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setAuth(!!d.authenticated);
@@ -87,7 +87,7 @@ export default function AdminPage() {
     if (!auth) return;
     if (role !== "super_admin" && role !== "finance") return;
     const poll = () => {
-      fetch("/api/admin/orders", { cache: "no-store" })
+      fetch("/api/admin/orders", { credentials: "same-origin",  cache: "no-store" })
         .then((r) => r.json())
         .then((d) => setNewOrders(Number(d.newCount || 0)))
         .catch(() => {});
@@ -99,7 +99,7 @@ export default function AdminPage() {
 
   const doLogin = async () => {
     setLoginErr("");
-    const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user, password: pass }) });
+    const r = await fetch("/api/admin/login", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user, password: pass }) });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
       setAuth(true);
@@ -112,21 +112,24 @@ export default function AdminPage() {
       else setMustChange(false);
       const eff = data.permissions && data.permissions.length > 0 ? (data.permissions as Tab[]) : (roleTabs[newRole] || roleTabs.super_admin);
       setTab(eff[0] || "dashboard");
+      try { localStorage.setItem("ayaan_auth_changed", Date.now().toString()); window.dispatchEvent(new Event("ayaan_auth_changed")); } catch {}
     } else setLoginErr(data.error || "Invalid username or password");
   };
   const doLogout = async () => {
-    await fetch("/api/admin/login", { method: "DELETE" });
+    await fetch("/api/admin/login", { credentials: "same-origin",  method: "DELETE" });
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setAuth(false);
     setRole("super_admin");
     setPermissions(null);
     setMustChange(false);
+    try { localStorage.setItem("ayaan_auth_changed", Date.now().toString()); window.dispatchEvent(new Event("ayaan_auth_changed")); } catch {}
   };
 
   const sendAdminOtp = async () => {
     setLoginErr("");
     if (!otpEmail.trim() || !otpEmail.includes("@")) return setLoginErr("Valid email required");
     setOtpLoading(true);
-    const r = await fetch("/api/admin/send-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: otpEmail.trim().toLowerCase() }) });
+    const r = await fetch("/api/admin/send-otp", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: otpEmail.trim().toLowerCase() }) });
     const d = await r.json().catch(() => ({}));
     setOtpLoading(false);
     if (r.ok) { setOtpSent(true); setLoginErr(""); alert(d.message || "OTP sent to sunil@drep.in"); }
@@ -140,7 +143,7 @@ export default function AdminPage() {
     if (newPass !== confirmPass) return setChangeErr("New passwords do not match");
     if (oldPass === newPass) return setChangeErr("New password must differ");
     setChanging(true);
-    const r = await fetch("/api/admin/change-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ oldPassword: oldPass, newPassword: newPass }) });
+    const r = await fetch("/api/admin/change-password", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ oldPassword: oldPass, newPassword: newPass }) });
     const d = await r.json().catch(() => ({}));
     setChanging(false);
     if (r.ok) {
@@ -154,7 +157,7 @@ export default function AdminPage() {
     setLoginErr("");
     if (!otp.trim()) return setLoginErr("OTP required");
     setOtpLoading(true);
-    const r = await fetch("/api/admin/verify-otp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: otpEmail.trim().toLowerCase(), token: otp.trim() }) });
+    const r = await fetch("/api/admin/verify-otp", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: otpEmail.trim().toLowerCase(), token: otp.trim() }) });
     const d = await r.json().catch(() => ({}));
     setOtpLoading(false);
     if (r.ok) {
@@ -298,6 +301,7 @@ export default function AdminPage() {
         {tab === "masters" && <MastersTab />}
         {tab === "admins" && <AdminsTab />}
         {tab === "carousel" && <CarouselTab />}
+        {tab === "email" && <EmailTab />}
       </main>
     </div>
   );
@@ -309,12 +313,12 @@ function RagTab() {
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState({ id: "", category: "General", keywords: "", en: "", hi: "", te: "", source: "Admin" });
 
-  const load = () => fetch("/api/admin/rag").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch("/api/admin/rag", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => { load(); }, []);
 
   const save = async () => {
     if (!form.en && !form.hi && !form.te) return alert("At least one language required");
-    const r = await fetch("/api/admin/rag", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/rag", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     if (r.ok) { setForm({ id: "", category: "General", keywords: "", en: "", hi: "", te: "", source: "Admin" }); setEditing(null); load(); }
     else alert("Failed");
   };
@@ -382,13 +386,14 @@ const EMPTY_BATCH = { id: "", name: "", course: "SI", medium: "Telugu", mode: "R
 
 function BatchesTab() {
   const [list, setList] = useState<any[]>([]);
+  const [q, setQ] = useState("");
   const [form, setForm] = useState({ ...EMPTY_BATCH });
   const [editing, setEditing] = useState<string | null>(null);
   const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
   const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
   const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
 
-  const load = () => fetch("/api/admin/batches").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch("/api/admin/batches", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => {
     load();
     fetch("/api/courses").then((r) => r.json()).then((d) => {
@@ -418,9 +423,14 @@ function BatchesTab() {
       }
     }).catch(() => {});
   }, []);
+  const filtered = list.filter((b: any) => {
+    if (!q) return true;
+    const qq = q.toLowerCase();
+    return [b.name, b.course, b.medium, b.mode, b.branch, b.slot, b.days, b.status, b.duration].join(" ").toLowerCase().includes(qq);
+  });
 
   const save = async () => {
-    const r = await fetch("/api/admin/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/batches", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setForm({ ...EMPTY_BATCH }); setEditing(null); load(); }
     else alert(d.error || "Failed");
@@ -444,9 +454,12 @@ function BatchesTab() {
   return (
     <div className="grid lg:grid-cols-12 gap-6">
       <div className="lg:col-span-7 card p-6">
-        <h2 className="font-semibold text-navy-900">Batches • {list.length} <span className="font-normal text-slate-500">— academic groups students join</span></h2>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="font-semibold text-navy-900">Batches • {filtered.length}/{list.length} <span className="font-normal text-slate-500">— academic groups students join</span></h2>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search batch, course, branch…" className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white min-w-[180px]" />
+        </div>
         <div className="mt-4 grid gap-3 max-h-[75vh] overflow-auto pr-1">
-          {list.map((b) => (
+          {filtered.length === 0 ? <div className="text-sm text-slate-500 text-center py-8">No batches match.</div> : filtered.map((b) => (
             <div key={b.id} className="p-4 rounded-2xl border border-slate-200 bg-white">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -514,16 +527,33 @@ function BatchesTab() {
 function AdmissionsTab() {
   const [list, setList] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "clarification_required" | "discount_pending" | "approved" | "rejected">("pending");
+  const [q, setQ] = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [splits, setSplits] = useState<Record<string, any[]>>({});
   const [openPay, setOpenPay] = useState<Record<string, boolean>>({});
   const [clarNote, setClarNote] = useState<Record<string, string>>({});
   const [discAmt, setDiscAmt] = useState<Record<string, string>>({});
   const [startDate, setStartDate] = useState<Record<string, string>>({});
   const [role, setRole] = useState("super_admin");
-  const load = () => fetch("/api/admin/admissions").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [courseOptions, setCourseOptions] = useState<string[]>([]);
+  const load = () => fetch("/api/admin/admissions", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => {
     load();
-    fetch("/api/admin/login").then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
+    fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
+    fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
   }, []);
   const isSuper = role === "super_admin";
   const togglePay = async (id: string) => {
@@ -536,7 +566,7 @@ function AdmissionsTab() {
     }
   };
   const act = async (id: string, action: string, extra: any = {}) => {
-    const r = await fetch("/api/admin/admissions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, ...extra }) });
+    const r = await fetch("/api/admin/admissions", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, ...extra }) });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
       if (action === "approve") alert(`Approved! Student ${data.studentId} created — login ${data.user.email} / Ayaan@1234 (must change on first login)`);
@@ -544,7 +574,95 @@ function AdmissionsTab() {
       load();
     } else alert(data.error || "Failed");
   };
-  const filtered = list.filter((a) => filter === "all" || a.status === filter);
+  const printForm = (a: any) => {
+    const fmtDate = (d: any) => { try { return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }); } catch { return String(d || "—"); } };
+    const aadhar = a.aadharCardNumber ? String(a.aadharCardNumber).replace(/(.{4})/g, "$1 ").trim() : "—";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Admission Form — ${a.applicationId || a.id}</title>
+    <style>
+      *{box-sizing:border-box} body{font-family:Inter,system-ui,Arial,sans-serif; margin:0; padding:24px; color:#0f172a; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+      .header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px}
+      .header h1{margin:0;font-size:20px;letter-spacing:0.04em}.header h1 span{color:#0369a1} .sub{font-size:11px;color:#64748b;margin-top:2px}
+      .badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;background:#0f172a;color:#fff;letter-spacing:0.06em}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px} .card{border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;background:#f8fafc}
+      .card h3{margin:0 0 8px;font-size:12px;letter-spacing:0.06em;color:#475569;text-transform:uppercase}
+      .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0;font-size:13px} .row:last-child{border:none} .k{color:#64748b} .v{font-weight:600;text-align:right;max-width:60%;word-break:break-word}
+      .photo{width:96px;height:96px;border-radius:12px;object-fit:cover;border:1px solid #e2e8f0;background:#fff}
+      .footer{margin-top:18px;display:flex;justify-content:space-between;gap:16px;font-size:11px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:12px}
+      .sig{margin-top:28px;display:flex;justify-content:space-between;gap:24px} .sig div{flex:1;border-top:1px solid #0f172a;padding-top:6px;font-size:11px;text-align:center;color:#334155}
+      @media print{ body{padding:12px} .no-print{display:none} }
+    </style></head><body>
+      <div class="header">
+        <div><h1>AYAAN <span>INSTITUTE</span></h1><div class="sub">Ayaan Group of Competitive Institutions • Est. 2016 • Dilsukhnagar • Hanamkonda • Bollikunta (Residential) • +91 88866 67222</div></div>
+        <div style="text-align:right"><div class="badge">${a.applicationId || a.id}</div><div class="sub" style="margin-top:6px">Status: <b>${String(a.status || "").replace(/_/g," ")}</b> • ${fmtDate(a.createdAt)}</div></div>
+      </div>
+      <div class="grid">
+        <div class="card"><h3>Applicant</h3>
+          <div class="row"><span class="k">Name</span><span class="v">${a.name || "—"} ${a.fatherName ? "S/o " + a.fatherName : ""}</span></div>
+          <div class="row"><span class="k">Email • Phone</span><span class="v">${a.email || "—"} • ${a.phone || "—"}</span></div>
+          <div class="row"><span class="k">Aadhar</span><span class="v" style="letter-spacing:0.12em">${aadhar}</span></div>
+          <div class="row"><span class="k">Address</span><span class="v">${(a.address || "—").replace(/</g,"&lt;")}</span></div>
+          ${a.reference ? `<div class="row"><span class="k">Reference</span><span class="v">${String(a.reference).replace(/</g,"&lt;")}</span></div>` : ""}
+          ${a.photo ? `<div class="row"><span class="k">Photo</span><span class="v"><a href="${a.photo}" target="_blank" style="color:#0369a1">View</a></span></div>` : ""}
+        </div>
+        <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+          ${a.photo ? `<img src="${a.photo}" class="photo" alt="Applicant photo"/>` : `<div style="width:96px;height:96px;border-radius:12px;background:#e2e8f0;display:grid;place-items:center;font-size:11px;color:#64748b">No Photo</div>`}
+          <div style="font-size:11px;color:#475569;text-align:center">${a.name || ""}<br/><span style="color:#94a3b8">${a.course || ""} • ${a.branch || ""}</span></div>
+          <div style="font-size:11px;padding:6px 10px;border-radius:999px;background:#fff;border:1px solid #e2e8f0">${a.batchName || a.batchId || "No batch yet"}</div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div class="card"><h3>Academic</h3>
+          <div class="row"><span class="k">Course</span><span class="v">${a.course || "—"} ${a.courseType ? "• " + a.courseType : ""}</span></div>
+          <div class="row"><span class="k">Medium • Mode</span><span class="v">${a.medium || "—"} • ${a.mode || "—"}</span></div>
+          <div class="row"><span class="k">Branch</span><span class="v">${a.branch || "—"}</span></div>
+          <div class="row"><span class="k">Duration</span><span class="v">${a.durationName || "—"} ${a.durationMonths ? "(" + a.durationMonths + " months)" : ""}</span></div>
+          <div class="row"><span class="k">Batch</span><span class="v">${a.batchName || "—"} ${a.batchId ? "(" + a.batchId + ")" : ""}</span></div>
+          <div class="row"><span class="k">Period</span><span class="v">${a.admissionStartDate ? fmtDate(a.admissionStartDate) : "—"} → ${a.courseEndDate ? fmtDate(a.courseEndDate) : "—"}</span></div>
+        </div>
+        <div class="card"><h3>Fee & Payment</h3>
+          <div class="row"><span class="k">Base Fee</span><span class="v">₹${Number(a.amount || 0).toLocaleString("en-IN")}</span></div>
+          <div class="row"><span class="k">Add-ons</span><span class="v">₹${Number(a.addonFees || 0).toLocaleString("en-IN")}</span></div>
+          ${a.discount ? `<div class="row"><span class="k">Discount ${a.discountStatus ? "(" + a.discountStatus + ")" : ""}</span><span class="v">- ₹${Number(a.discount).toLocaleString("en-IN")}</span></div>` : ""}
+          <div class="row"><span class="k">Total Fee</span><span class="v">₹${Number(a.totalFee || 0).toLocaleString("en-IN")} ${a.feeLocked ? " (locked)" : ""}</span></div>
+          <div class="row"><span class="k">Paid Now</span><span class="v">₹${Number(a.payingNow || 0).toLocaleString("en-IN")} via ${a.paymentMethod || "—"} ${a.transactionId ? "(" + a.transactionId + ")" : ""}</span></div>
+          <div class="row"><span class="k">Balance Due</span><span class="v" style="color:${Number(a.balanceDue||0)>0 ? "#dc2626" : "#059669"}">₹${Number(a.balanceDue || 0).toLocaleString("en-IN")}</span></div>
+          <div class="row"><span class="k">Final Fee</span><span class="v">${a.finalFee != null ? "₹" + Number(a.finalFee).toLocaleString("en-IN") : "—"}</span></div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div class="card"><h3>IDs & Status</h3>
+          <div class="row"><span class="k">Application ID</span><span class="v">${a.applicationId || "—"}</span></div>
+          <div class="row"><span class="k">Applicant Student ID</span><span class="v">${a.applicantStudentId || "—"}</span></div>
+          <div class="row"><span class="k">Status</span><span class="v">${String(a.status||"").replace(/_/g," ")}</span></div>
+          ${a.approvedAt ? `<div class="row"><span class="k">Approved</span><span class="v">${fmtDate(a.approvedAt)}</span></div>` : ""}
+          ${a.clarificationNote ? `<div class="row"><span class="k">Clarification</span><span class="v">${String(a.clarificationNote).replace(/</g,"&lt;")}</span></div>` : ""}
+        </div>
+        <div class="card"><h3>Contact & Reference</h3>
+          <div class="row"><span class="k">Phone</span><span class="v">${a.phone || "—"}</span></div>
+          <div class="row"><span class="k">Email</span><span class="v">${a.email || "—"}</span></div>
+          <div class="row"><span class="k">Reference</span><span class="v">${a.reference || "—"}</span></div>
+          <div class="row"><span class="k">Submitted</span><span class="v">${fmtDate(a.createdAt)} • ${a.id}</span></div>
+        </div>
+      </div>
+      <div class="sig"><div>Applicant Signature</div><div>Authorized Signatory • Ayaan Institute</div><div>Date & Seal</div></div>
+      <div class="footer"><span>Generated ${new Date().toLocaleString("en-IN")} • Ayaan Institute • This is a computer-generated admission form — print & keep for records.</span><span class="no-print"><button onclick="window.print()" style="padding:8px 14px;border-radius:999px;border:1px solid #0f172a;background:#0f172a;color:#fff;font-weight:600;cursor:pointer">Print / Save as PDF</button></span></div>
+      <script>window.onload=()=>setTimeout(()=>window.print(), 300);<\/script>
+    </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) return alert("Popup blocked — allow popups to print");
+    w.document.open(); w.document.write(html); w.document.close();
+  };
+  const filtered = list.filter((a) => {
+    if (filter !== "all" && a.status !== filter) return false;
+    if (courseFilter !== "all" && String(a.course) !== courseFilter) return false;
+    if (branchFilter !== "all" && String(a.branch) !== branchFilter) return false;
+    if (q) {
+      const qq = q.toLowerCase();
+      const hay = [a.name, a.fatherName, a.phone, a.email, a.course, a.branch, a.medium, a.mode, a.applicationId, a.applicantStudentId, a.aadharCardNumber, a.address, a.reference, a.transactionId].join(" ").toLowerCase();
+      if (!hay.includes(qq)) return false;
+    }
+    return true;
+  });
   const statusPill = (s: string) =>
     s === "approved" ? "bg-emerald-50 border-emerald-200 text-emerald-700"
     : s === "rejected" ? "bg-red-50 border-red-200 text-red-700"
@@ -553,12 +671,20 @@ function AdmissionsTab() {
     : "bg-amber-50 border-amber-200 text-amber-700";
   return (
     <div className="card p-6">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="font-semibold text-navy-900">Applications & Admissions • {list.length}</h2>
-        <div className="flex gap-1 flex-wrap">
-          {(["all", "pending", "clarification_required", "discount_pending", "approved", "rejected"] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-full text-xs border ${filter === f ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>{f === "all" ? `All (${list.length})` : `${f.replace(/_/g, " ")} (${list.filter((x) => x.status === f).length})`}</button>
-          ))}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="font-semibold text-navy-900">Applications & Admissions • {filtered.length}/{list.length}</h2>
+          <div className="flex gap-1 flex-wrap">
+            {(["all", "pending", "clarification_required", "discount_pending", "approved", "rejected"] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-full text-xs border ${filter === f ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>{f === "all" ? `All (${list.length})` : `${f.replace(/_/g, " ")} (${list.filter((x) => x.status === f).length})`}</button>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap items-center">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, phone, email, course, Aadhar, App ID…" className="flex-1 min-w-[220px] px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white" />
+          <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"><option value="all">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"><option value="all">All branches</option>{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+          {(q || courseFilter !== "all" || branchFilter !== "all") && <button onClick={() => { setQ(""); setCourseFilter("all"); setBranchFilter("all"); }} className="text-xs text-slate-500 hover:underline">Clear</button>}
         </div>
       </div>
       <div className="mt-4 grid gap-3">
@@ -568,6 +694,7 @@ function AdmissionsTab() {
               <div className="flex-1">
                 <div className="text-sm font-semibold text-navy-900">{a.name} {a.fatherName ? <span className="font-normal text-slate-600">S/o {a.fatherName}</span> : ""} • {a.phone} <span className="text-xs font-normal text-slate-500">• {a.email}</span></div>
                 <div className="text-xs text-slate-600 mt-1">{a.course} {a.courseType ? `• ${a.courseType}` : ""} • {a.medium} • {a.mode} • {a.branch || "—"} {a.batchId ? `• ${a.batchId}` : ""}</div>
+                <div className="text-xs text-slate-700 mt-1">🪪 Aadhar: <span className="font-mono tracking-widest">{a.aadharCardNumber ? String(a.aadharCardNumber).replace(/(.{4})/g, "$1 ").trim() : <span className="text-slate-400">— not provided (legacy)</span>}</span></div>
                 {a.address && <div className="text-xs text-slate-500 mt-1">📍 {a.address} {a.reference ? `• Ref: ${a.reference}` : ""}</div>}
                 <div className="text-xs mt-1 flex gap-2 items-center flex-wrap">
                   {a.applicationId && <span className="px-2 py-1 rounded-full bg-navy-900 text-white text-xs font-semibold">{a.applicationId}</span>}
@@ -598,7 +725,8 @@ function AdmissionsTab() {
                   </div>
                 )}
               </div>
-              <div className="shrink-0 text-right">
+              <div className="shrink-0 flex flex-col gap-2 items-end">
+                <button onClick={() => printForm(a)} className="px-3 py-1.5 rounded-full bg-navy-900 text-white text-xs font-medium hover:bg-navy-800">🖨️ Print / PDF</button>
                 {a.screenshot && <a href={a.screenshot} target="_blank" className="text-xs text-sky-700 hover:underline"><img src={a.screenshot} alt="proof" className="w-20 h-14 object-cover rounded-lg border border-slate-200" /><div>View Proof</div></a>}
               </div>
             </div>
@@ -654,7 +782,7 @@ function DashboardTab({ onOrders }: { onOrders?: () => void }) {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [newOrders, setNewOrders] = useState(0);
   useEffect(() => {
-    Promise.all([fetch("/api/admin/payments").then((r) => r.json()).catch(() => null), fetch("/api/admin/expenses").then((r) => r.json()).catch(() => []), fetch("/api/admin/admissions").then((r) => r.json()).catch(() => []), fetch("/api/admin/orders").then((r) => r.json()).catch(() => null)])
+    Promise.all([fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).catch(() => null), fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).catch(() => []), fetch("/api/admin/admissions", { credentials: "same-origin" }).then((r) => r.json()).catch(() => []), fetch("/api/admin/orders", { credentials: "same-origin" }).then((r) => r.json()).catch(() => null)])
       .then(([pay, exp, adm, ord]) => {
         setExpenses(Array.isArray(exp) ? exp : []);
         if (ord && typeof ord.newCount === "number") setNewOrders(ord.newCount);
@@ -810,8 +938,8 @@ function PaymentsTab() {
   const [students, setStudents] = useState<any[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>("new");
   const [newPay, setNewPay] = useState({ name: "", phone: "", email: "", course: "SI", medium: "Telugu", mode: "Offline", amount: 0, paidAmount: 0, dueDate: "", paymentMethod: "cash", transactionId: "", password: "", fatherName: "", address: "", branch: "Warangal", courseType: "Regular" });
-  const load = () => fetch("/api/admin/payments").then((r) => r.json()).then((d) => setData(d)).catch(() => {});
-  const loadStudents = () => fetch("/api/admin/students").then((r) => r.json()).then((d) => Array.isArray(d) && setStudents(d)).catch(() => {});
+  const load = () => fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setData(d)).catch(() => {});
+  const loadStudents = () => fetch("/api/admin/students", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setStudents(d)).catch(() => {});
   useEffect(() => { load(); loadStudents(); }, []);
   useEffect(() => {
     if (selectedStudent === "new") {
@@ -828,7 +956,7 @@ function PaymentsTab() {
       // allow auto generation
     }
     const payload: any = { ...newPay, studentId: selectedStudent, createStudent: selectedStudent === "new", password: newPay.password };
-    const r = await fetch("/api/admin/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const r = await fetch("/api/admin/payments", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const d = await r.json();
     if (r.ok) {
       if (d.studentId && selectedStudent === "new") alert(`Payment added! Student created: ${d.generatedPassword ? `Password: ${d.generatedPassword}` : ""}. Check Students tab.`);
@@ -925,17 +1053,35 @@ function StudentsTab() {
   const [pw, setPw] = useState<Record<string, string>>({});
   const [showAdd, setShowAdd] = useState(false);
   const [newStu, setNewStu] = useState({ name: "", fatherName: "", email: "", phone: "", address: "", branch: "Warangal", course: "SI", courseType: "Regular", medium: "Telugu", mode: "Residential", password: "" });
-  const load = () => fetch("/api/admin/students").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
+  const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
+  const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
+  const load = () => fetch("/api/admin/students", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  useEffect(() => {
+    load();
+    fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
+    fetch("/api/mediums").then((r) => r.json()).then((d) => Array.isArray(d) && setMediumOptions(d.map((m: any) => m.name))).catch(() => {});
+  }, []);
   const act = async (id: string, action: string, extra: any = {}) => {
-    const r = await fetch("/api/admin/students", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, ...extra }) });
+    const r = await fetch("/api/admin/students", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, ...extra }) });
     const data = await r.json();
     if (r.ok) load();
     else alert(data.error || "Failed");
   };
   const create = async () => {
     if (!newStu.name.trim() || !newStu.email.trim() || !newStu.phone.trim() || !newStu.password.trim()) return alert("Name, email, phone, password required");
-    const r = await fetch("/api/admin/students", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", ...newStu }) });
+    const r = await fetch("/api/admin/students", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", ...newStu }) });
     const data = await r.json();
     if (r.ok) { setNewStu({ name: "", fatherName: "", email: "", phone: "", address: "", branch: "Warangal", course: "SI", courseType: "Regular", medium: "Telugu", mode: "Residential", password: "" }); setShowAdd(false); load(); }
     else alert(data.error || "Failed");
@@ -962,13 +1108,13 @@ function StudentsTab() {
           </div>
           <input value={newStu.address} onChange={(e) => setNewStu({ ...newStu, address: e.target.value })} placeholder="Address" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           <div className="grid sm:grid-cols-3 gap-2">
-            <select value={newStu.branch} onChange={(e) => setNewStu({ ...newStu, branch: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Warangal</option><option>Hyderabad</option><option>Hanamkonda</option><option>Bollikunta (Residential)</option></select>
-            <select value={newStu.course} onChange={(e) => setNewStu({ ...newStu, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>SI</option><option>Constable</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>Army</option><option>UPSC</option></select>
+            <select value={newStu.branch} onChange={(e) => setNewStu({ ...newStu, branch: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+            <select value={newStu.course} onChange={(e) => setNewStu({ ...newStu, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
             <input value={newStu.password} onChange={(e) => setNewStu({ ...newStu, password: e.target.value })} placeholder="Password * (min 6)" type="password" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           </div>
           <div className="grid sm:grid-cols-3 gap-2">
             <select value={newStu.courseType} onChange={(e) => setNewStu({ ...newStu, courseType: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Regular</option><option>Crash</option><option>Weekend</option><option>Online</option></select>
-            <select value={newStu.medium} onChange={(e) => setNewStu({ ...newStu, medium: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Telugu</option><option>English</option></select>
+            <select value={newStu.medium} onChange={(e) => setNewStu({ ...newStu, medium: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{mediumOptions.map((m) => <option key={m} value={m}>{m}</option>)}</select>
             <select value={newStu.mode} onChange={(e) => setNewStu({ ...newStu, mode: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Residential</option><option>Offline</option><option>Online</option></select>
           </div>
           <button onClick={create} className="btn-primary justify-center">Create Student →</button>
@@ -1004,16 +1150,16 @@ function FinanceTab() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any>(null);
   const [form, setForm] = useState({ title: "", category: "Rent", amount: 0, dueDate: new Date().toISOString().slice(0, 10), status: "pending", vendor: "", notes: "" });
-  const loadExp = () => fetch("/api/admin/expenses").then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
-  const loadPay = () => fetch("/api/admin/payments").then((r) => r.json()).then((d) => setPayments(d)).catch(() => {});
+  const loadExp = () => fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
+  const loadPay = () => fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setPayments(d)).catch(() => {});
   useEffect(() => { loadExp(); loadPay(); }, []);
   const save = async () => {
     if (!form.title || !form.amount) return alert("Title and amount required");
-    const r = await fetch("/api/admin/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/expenses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     if (r.ok) { setForm({ title: "", category: "Rent", amount: 0, dueDate: new Date().toISOString().slice(0, 10), status: "pending", vendor: "", notes: "" }); loadExp(); }
   };
   const togglePaid = async (e: any) => {
-    await fetch("/api/admin/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...e, status: e.status === "paid" ? "pending" : "paid" }) });
+    await fetch("/api/admin/expenses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...e, status: e.status === "paid" ? "pending" : "paid" }) });
     loadExp();
   };
   const del = async (id: string) => {
@@ -1021,8 +1167,8 @@ function FinanceTab() {
     await fetch(`/api/admin/expenses?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     loadExp();
   };
-  const totalReceivable = payments?.totals.totalReceivable || 0;
-  const totalCollected = payments?.totals.totalCollected || 0;
+  const totalReceivable = payments?.totals?.totalReceivable || 0;
+  const totalCollected = payments?.totals?.totalCollected || 0;
   const approvedExpenses = expenses.filter((e: any) => ["approved", "paid"].includes(e.status));
   const totalPayable = approvedExpenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
   const paidPayable = expenses.filter((e: any) => e.status === "paid").reduce((s: number, e: any) => s + Number(e.amount), 0);
@@ -1083,10 +1229,10 @@ function LeadsTab() {
   const [q, setQ] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ notes: "", freeText: "", employeeName: "", dueDate: "", status: "new" });
-  const load = () => fetch("/api/admin/leads").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch("/api/admin/leads", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => { load(); }, []);
   const update = async (id: string, patch: any) => {
-    await fetch("/api/admin/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    await fetch("/api/admin/leads", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     load();
   };
   const del = async (id: string) => {
@@ -1197,7 +1343,7 @@ function LeadsTab() {
     }
     if (leads.length === 0) return alert("No valid rows found (need name, phone)");
     if (!confirm(`Import ${leads.length} lead(s)? Existing phones will be skipped.`)) return;
-    const r = await fetch("/api/admin/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leads }) });
+    const r = await fetch("/api/admin/leads", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leads }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { alert(`Imported ${d.imported} lead(s)`); load(); }
     else alert(d.error || "Import failed");
@@ -1341,12 +1487,34 @@ function LeadsTab() {
 
 function AlumniTab() {
   const [list, setList] = useState<any[]>([]);
+  const [q, setQ] = useState("");
+  const [courseOptions, setCourseOptions] = useState<string[]>(["Constable", "SI", "Groups", "SSC GD", "Defence", "UPSC", "General"]);
   const [form, setForm] = useState({ id: "", name: "", role: "", batch: "", course: "Constable", quote: "", video: "", image: "", featured: false });
   const [editing, setEditing] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
-  const load = () => fetch("/api/admin/alumni").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const load = () => fetch("/api/admin/alumni", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  useEffect(() => {
+    load();
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        const uniq = Array.from(new Set(opts));
+        if (uniq.length > 0) setCourseOptions(uniq);
+      }
+    }).catch(() => {});
+  }, []);
+  const filtered = list.filter((a: any) => {
+    if (!q) return true;
+    const qq = q.toLowerCase();
+    const hay = [a.name, a.role, a.batch, a.course, a.quote, a.video].join(" ").toLowerCase();
+    return hay.includes(qq);
+  });
   const uploadImage = async (f: File | undefined) => {
     if (!f) return;
     setUploadErr("");
@@ -1355,7 +1523,7 @@ function AlumniTab() {
     setUploading(true);
     const fd = new FormData();
     fd.append("file", f);
-    const r = await fetch("/api/admin/alumni/upload", { method: "POST", body: fd });
+    const r = await fetch("/api/admin/alumni/upload", { credentials: "same-origin",  method: "POST", body: fd });
     const d = await r.json().catch(() => ({}));
     setUploading(false);
     if (r.ok && d.url) setForm({ ...form, image: d.url });
@@ -1363,7 +1531,7 @@ function AlumniTab() {
   };
   const save = async () => {
     if (!form.name.trim() || !form.quote.trim()) return alert("Name and quote required");
-    const r = await fetch("/api/admin/alumni", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/alumni", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     if (r.ok) { setForm({ id: "", name: "", role: "", batch: "", course: "Constable", quote: "", video: "", image: "", featured: false }); setEditing(null); setUploadErr(""); load(); }
     else alert("Failed");
   };
@@ -1375,10 +1543,12 @@ function AlumniTab() {
   return (
     <div className="grid lg:grid-cols-12 gap-6">
       <div className="lg:col-span-7 card p-6">
-        <h2 className="font-semibold text-navy-900">Alumni • {list.length} testimonials</h2>
-        <p className="text-xs text-slate-500">From https://ayaaninstitute.in/ — manages /alumni page</p>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div><h2 className="font-semibold text-navy-900">Alumni • {filtered.length}/{list.length}</h2><p className="text-xs text-slate-500">From https://ayaaninstitute.in/ — manages /alumni page</p></div>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, role, course…" className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white min-w-[180px]" />
+        </div>
         <div className="mt-4 grid gap-3 max-h-[70vh] overflow-auto pr-1">
-          {list.map((a) => (
+          {filtered.length === 0 ? <div className="text-sm text-slate-500 text-center py-8">No testimonials match.</div> : filtered.map((a) => (
             <div key={a.id} className="p-4 rounded-2xl border border-slate-200 bg-white">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex gap-3">
@@ -1406,7 +1576,7 @@ function AlumniTab() {
           <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} placeholder="Role (e.g., Constable — Selected)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           <div className="grid grid-cols-2 gap-3">
             <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} placeholder="Batch (e.g., 2020 • Warangal)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
-            <select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm"><option>Constable</option><option>SI</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>UPSC</option><option>General</option></select>
+            <select value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm">{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}<option>General</option></select>
           </div>
           <textarea value={form.quote} onChange={(e) => setForm({ ...form, quote: e.target.value })} placeholder="Quote * — testimonial text" rows={4} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
           <input value={form.video} onChange={(e) => setForm({ ...form, video: e.target.value })} placeholder="YouTube link (e.g., https://www.youtube.com/watch?v=...)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
@@ -1440,17 +1610,29 @@ function AlumniTab() {
 
 function StoreStockTab() {
   const [list, setList] = useState<any[]>([]);
+  const [q, setQ] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
   const [form, setForm] = useState({ id: "", name: "", price: 0, category: "Gear", stock: 0, threshold: 5, sku: "", image: "", sizes: "" });
   const [editing, setEditing] = useState<string | null>(null);
-  const load = () => fetch("/api/admin/store").then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch("/api/admin/store", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => { load(); }, []);
+  const categories = Array.from(new Set(list.map((x: any) => x.category).filter(Boolean))) as string[];
+  const filtered = list.filter((x: any) => {
+    if (catFilter !== "all" && x.category !== catFilter) return false;
+    if (q) {
+      const qq = q.toLowerCase();
+      const hay = [x.name, x.category, x.sku, Array.isArray(x.sizes) ? x.sizes.join(" ") : x.sizes].join(" ").toLowerCase();
+      if (!hay.includes(qq)) return false;
+    }
+    return true;
+  });
   const save = async () => {
     if (!form.name.trim() || !form.price) return alert("Name and price required");
-    const r = await fetch("/api/admin/store", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/store", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     if (r.ok) { setForm({ id: "", name: "", price: 0, category: "Gear", stock: 0, threshold: 5, sku: "", image: "", sizes: "" }); setEditing(null); load(); }
   };
-  const quick = async (id: string, delta: number) => { await fetch("/api/admin/store", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, delta }) }); load(); };
-  const setStock = async (id: string, stock: number) => { await fetch("/api/admin/store", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stock }) }); load(); };
+  const quick = async (id: string, delta: number) => { await fetch("/api/admin/store", { credentials: "same-origin",  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, delta }) }); load(); };
+  const setStock = async (id: string, stock: number) => { await fetch("/api/admin/store", { credentials: "same-origin",  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stock }) }); load(); };
   const del = async (id: string) => { if (!confirm("Delete item?")) return; await fetch(`/api/admin/store?id=${encodeURIComponent(id)}`, { method: "DELETE" }); load(); };
   const low = list.filter((x) => x.stock > 0 && x.stock <= x.threshold).length;
   const out = list.filter((x) => x.stock === 0).length;
@@ -1458,11 +1640,15 @@ function StoreStockTab() {
     <div className="grid lg:grid-cols-12 gap-6">
       <div className="lg:col-span-7 card p-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-navy-900">Store Stock • {list.length} items</h2>
+          <h2 className="font-semibold text-navy-900">Store Stock • {filtered.length}/{list.length} items</h2>
           <div className="flex gap-2 text-xs"><span className="px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700">{low} low</span><span className="px-2 py-1 rounded-full bg-red-50 border border-red-200 text-red-700">{out} out</span></div>
         </div>
+        <div className="mt-3 flex gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, category, SKU…" className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white" />
+          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"><option value="all">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        </div>
         <div className="mt-4 grid gap-3 max-h-[70vh] overflow-auto pr-1">
-          {list.map((it) => (
+          {filtered.length === 0 ? <div className="text-sm text-slate-500 text-center py-8">No items match.</div> : filtered.map((it) => (
             <div key={it.id} className="p-4 rounded-2xl border border-slate-200 bg-white flex items-center justify-between gap-3">
               <div className="flex-1">
                 <div className="text-sm font-semibold text-navy-900">{it.name} <span className="text-xs font-normal text-slate-500">• {it.category} • {it.sku}{Array.isArray(it.sizes) && it.sizes.length > 0 ? ` • Sizes: ${it.sizes.join(", ")}` : ""}</span></div>
@@ -1512,10 +1698,10 @@ function BannerTab() {
   const [data, setData] = useState({ enabled: false, message: "", type: "info", link: "" });
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { fetch("/api/admin/banner").then((r) => r.json()).then((d) => setData({ enabled: !!d.enabled, message: d.message || "", type: d.type || "info", link: d.link || "" })).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/admin/banner", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setData({ enabled: !!d.enabled, message: d.message || "", type: d.type || "info", link: d.link || "" })).catch(() => {}); }, []);
 
   const save = async () => {
-    const r = await fetch("/api/admin/banner", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    const r = await fetch("/api/admin/banner", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     if (r.ok) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -1624,7 +1810,7 @@ function FeeConfigTab() {
     setLoading(true);
     try {
       const [fr, dr, mr, br, cr] = await Promise.all([
-        fetch("/api/admin/fees", { cache: "no-store" }),
+        fetch("/api/admin/fees", { credentials: "same-origin",  cache: "no-store" }),
         fetch("/api/durations", { cache: "no-store" }),
         fetch("/api/mediums", { cache: "no-store" }),
         fetch("/api/branches", { cache: "no-store" }),
@@ -1712,7 +1898,7 @@ function FeeConfigTab() {
         return { course, mode, duration: durKey, medium: medKey, branch: brKey, amount: amount === "" ? null : Number(amount) };
       })
     );
-    const r = await fetch("/api/admin/fees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees: payload }) });
+    const r = await fetch("/api/admin/fees", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees: payload }) });
     setSaving(false);
     if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500); load(); }
     else alert("Failed to save");
@@ -1722,7 +1908,7 @@ function FeeConfigTab() {
     if (!confirm("Reset BASE fees to defaults? This will overwrite base values (duration overrides are kept).")) return;
     const list: any[] = [];
     for (const c of courses) for (const m of modes) list.push({ course: c, mode: m, duration: "", amount: FEE_FALLBACK[c][m] });
-    const r = await fetch("/api/admin/fees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees: list }) });
+    const r = await fetch("/api/admin/fees", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fees: list }) });
     if (r.ok) { load(); alert("Base fees reset to defaults"); }
   };
 
@@ -1877,15 +2063,15 @@ function ExpenseTrackerTab() {
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ title: "", category: "General", amount: "", paidBy: "", paymentMethod: "cash", expenseDate: new Date().toISOString().slice(0, 10), dueDate: new Date().toISOString().slice(0, 10), notes: "" });
   const [role, setRole] = useState<string>("super_admin");
-  const load = () => fetch("/api/admin/expenses").then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
+  const load = () => fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
   useEffect(() => {
     load();
-    fetch("/api/admin/login").then((r) => r.json()).then((d) => setRole(d.role || "super_admin")).catch(() => {});
+    fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setRole(d.role || "super_admin")).catch(() => {});
   }, []);
   const isSuper = role === "super_admin";
   const save = async () => {
     if (!form.title.trim() || !form.amount) return alert("Expense and amount required");
-    const r = await fetch("/api/admin/expenses", {
+    const r = await fetch("/api/admin/expenses", { credentials: "same-origin", 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: form.title, expense: form.title, category: form.category, amount: Number(form.amount), paidBy: form.paidBy, paymentMethod: form.paymentMethod, expenseDate: form.expenseDate, dueDate: form.dueDate, notes: form.notes }),
@@ -1898,7 +2084,7 @@ function ExpenseTrackerTab() {
     } else alert(d.error || "Failed");
   };
   const act = async (id: string, action: string) => {
-    const r = await fetch("/api/admin/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) });
+    const r = await fetch("/api/admin/expenses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) });
     if (r.ok) load();
     else alert("Failed");
   };
@@ -2060,21 +2246,21 @@ function MastersTab() {
   const [bForm, setBForm] = useState({ id: "", name: "", address: "", phone: "", active: true });
   const [cForm, setCForm] = useState({ id: "", slug: "", title: "", fee: "", duration: "", eligibility: "" });
   const load = () => {
-    fetch("/api/admin/durations").then((r) => r.json()).then((d) => Array.isArray(d) && setDurations(d)).catch(() => {});
-    fetch("/api/admin/addons").then((r) => r.json()).then((d) => Array.isArray(d) && setAddons(d)).catch(() => {});
-    fetch("/api/admin/mediums").then((r) => r.json()).then((d) => Array.isArray(d) && setMediums(d)).catch(() => {});
-    fetch("/api/admin/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranches(d)).catch(() => {});
-    fetch("/api/admin/courses").then((r) => r.json()).then((d) => Array.isArray(d) && setCourses(d)).catch(() => {});
+    fetch("/api/admin/durations", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setDurations(d)).catch(() => {});
+    fetch("/api/admin/addons", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setAddons(d)).catch(() => {});
+    fetch("/api/admin/mediums", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setMediums(d)).catch(() => {});
+    fetch("/api/admin/branches", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setBranches(d)).catch(() => {});
+    fetch("/api/admin/courses", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setCourses(d)).catch(() => {});
   };
   useEffect(() => { load(); }, []);
   const saveD = async () => {
     if (!dForm.name.trim() || !dForm.months) return alert("Name and months required");
-    const r = await fetch("/api/admin/durations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: dForm.id || undefined, name: dForm.name, months: Number(dForm.months), active: dForm.active }) });
+    const r = await fetch("/api/admin/durations", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: dForm.id || undefined, name: dForm.name, months: Number(dForm.months), active: dForm.active }) });
     if (r.ok) { setDForm({ id: "", name: "", months: "", active: true }); load(); } else alert("Failed (name must be unique)");
   };
   const saveA = async () => {
     if (!aForm.name.trim() || aForm.fee === "") return alert("Name and fee required");
-    const r = await fetch("/api/admin/addons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: aForm.id || undefined, name: aForm.name, fee: Number(aForm.fee), courses: aForm.courses, active: aForm.active }) });
+    const r = await fetch("/api/admin/addons", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: aForm.id || undefined, name: aForm.name, fee: Number(aForm.fee), courses: aForm.courses, active: aForm.active }) });
     if (r.ok) { setAForm({ id: "", name: "", fee: "", courses: "", active: true }); load(); } else alert("Failed");
   };
   const del = async (kind: "d" | "a" | "m" | "b" | "c", id: string) => {
@@ -2089,18 +2275,18 @@ function MastersTab() {
   };
   const saveM = async () => {
     if (!mForm.name.trim()) return alert("Name required");
-    const r = await fetch("/api/admin/mediums", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mForm.id || undefined, name: mForm.name, active: mForm.active }) });
+    const r = await fetch("/api/admin/mediums", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mForm.id || undefined, name: mForm.name, active: mForm.active }) });
     if (r.ok) { setMForm({ id: "", name: "", active: true }); load(); } else alert("Failed (name must be unique)");
   };
   const saveB = async () => {
     if (!bForm.name.trim() || !bForm.address.trim()) return alert("Name and address required");
-    const r = await fetch("/api/admin/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: bForm.id || undefined, name: bForm.name, address: bForm.address, phone: bForm.phone, active: bForm.active }) });
+    const r = await fetch("/api/admin/branches", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: bForm.id || undefined, name: bForm.name, address: bForm.address, phone: bForm.phone, active: bForm.active }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setBForm({ id: "", name: "", address: "", phone: "", active: true }); load(); } else alert(d.error || "Failed (name must be unique)");
   };
   const saveC = async () => {
     if (!cForm.slug.trim() || !cForm.title.trim()) return alert("Slug and title required");
-    const r = await fetch("/api/admin/courses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cForm.id || undefined, slug: cForm.slug, title: cForm.title, fee: cForm.fee, duration: cForm.duration, eligibility: cForm.eligibility }) });
+    const r = await fetch("/api/admin/courses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cForm.id || undefined, slug: cForm.slug, title: cForm.title, fee: cForm.fee, duration: cForm.duration, eligibility: cForm.eligibility }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setCForm({ id: "", slug: "", title: "", fee: "", duration: "", eligibility: "" }); load(); } else alert(d.error || "Failed");
   };
@@ -2269,10 +2455,10 @@ function DuesTab() {
 
   const loadQueue = () =>
     Promise.all([
-      fetch("/api/admin/fee-payments?status=submitted", { cache: "no-store" }).then((r) => r.json()).catch(() => []),
-      fetch("/api/admin/fee-payments?status=pending_verification", { cache: "no-store" }).then((r) => r.json()).catch(() => []),
+      fetch("/api/admin/fee-payments?status=submitted", { credentials: "same-origin",  cache: "no-store" }).then((r) => r.json()).catch(() => []),
+      fetch("/api/admin/fee-payments?status=pending_verification", { credentials: "same-origin",  cache: "no-store" }).then((r) => r.json()).catch(() => []),
     ]).then(([a, b]) => setQueue([...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]));
-  const loadAdmissions = () => fetch("/api/admin/admissions").then((r) => r.json()).then((d) => Array.isArray(d) && setAdmissions(d)).catch(() => {});
+  const loadAdmissions = () => fetch("/api/admin/admissions", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setAdmissions(d)).catch(() => {});
   useEffect(() => { loadQueue(); loadAdmissions(); }, []);
 
   const openWorkspace = async (a: any) => {
@@ -2298,7 +2484,7 @@ function DuesTab() {
     if (Array.isArray(d)) setDuesRows(d);
   };
   const loadReceipts = async () => {
-    const r = await fetch("/api/admin/receipts", { cache: "no-store" });
+    const r = await fetch("/api/admin/receipts", { credentials: "same-origin",  cache: "no-store" });
     const d = await r.json().catch(() => []);
     if (Array.isArray(d)) setAllReceipts(d);
   };
@@ -2306,14 +2492,14 @@ function DuesTab() {
   const acknowledge = async (payId: string) => {
     const rows = allocRows.filter((r) => r.installmentId && Number(r.amount) > 0).map((r) => ({ installmentId: r.installmentId, amount: Number(r.amount) }));
     if (rows.length === 0) return alert("Add at least one allocation row");
-    const r = await fetch("/api/admin/fee-payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payId, action: "acknowledge", allocations: rows }) });
+    const r = await fetch("/api/admin/fee-payments", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payId, action: "acknowledge", allocations: rows }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { alert(`Acknowledged — Receipt ${d.receiptNo}`); setAckFor(null); setAllocRows([{ installmentId: "", amount: "" }]); loadQueue(); refreshWorkspace(); }
     else alert(d.error || "Failed");
   };
   const rejectPay = async (payId: string) => {
     const note = prompt("Rejection reason (recorded, balance unaffected):") || "";
-    const r = await fetch("/api/admin/fee-payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payId, action: "reject", note }) });
+    const r = await fetch("/api/admin/fee-payments", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payId, action: "reject", note }) });
     if (r.ok) { loadQueue(); refreshWorkspace(); } else alert("Failed");
   };
   const autoOldest = (payAmount: number) => {
@@ -2333,13 +2519,13 @@ function DuesTab() {
 
   const addInst = async () => {
     if (!sel || !newInst.amount || !newInst.dueDate) return alert("Amount and due date required");
-    const r = await fetch("/api/admin/installments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admissionId: sel.id, label: newInst.label, amount: Number(newInst.amount), dueDate: newInst.dueDate, notes: newInst.notes }) });
+    const r = await fetch("/api/admin/installments", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admissionId: sel.id, label: newInst.label, amount: Number(newInst.amount), dueDate: newInst.dueDate, notes: newInst.notes }) });
     if (r.ok) { setNewInst({ label: "", amount: "", dueDate: "", notes: "" }); refreshWorkspace(); } else alert("Failed");
   };
   const saveDue = async (instId: string) => {
     const e = dueEdit[instId];
     if (!e?.date) return alert("New due date required");
-    const r = await fetch("/api/admin/installments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: instId, dueDate: e.date, reason: e.reason }) });
+    const r = await fetch("/api/admin/installments", { credentials: "same-origin",  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: instId, dueDate: e.date, reason: e.reason }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setDueEdit({ ...dueEdit, [instId]: { date: "", reason: "" } }); refreshWorkspace(); }
     else alert(d.error || "Failed");
@@ -2618,7 +2804,7 @@ function AllocSelect({ admissionId, value, onChange }: { admissionId: string; va
 function ReceiptModal({ receiptNo, onClose }: { receiptNo: string; onClose: () => void }) {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    fetch("/api/admin/receipts", { cache: "no-store" }).then((r) => r.json()).then((d) => {
+    fetch("/api/admin/receipts", { credentials: "same-origin",  cache: "no-store" }).then((r) => r.json()).then((d) => {
       const r = (Array.isArray(d) ? d : []).find((x: any) => x.receiptNo === receiptNo);
       if (r) setData(r);
     }).catch(() => {});
@@ -2652,7 +2838,7 @@ function OrdersTab() {
   const [note, setNote] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const load = () =>
-    fetch("/api/admin/orders", { cache: "no-store" })
+    fetch("/api/admin/orders", { credentials: "same-origin",  cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d.orders)) setOrders(d.orders);
@@ -2661,13 +2847,13 @@ function OrdersTab() {
       .catch(() => {});
   useEffect(() => {
     load();
-    fetch("/api/admin/login").then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
+    fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, []);
   const isSuper = role === "super_admin";
   const act = async (id: string, action: string) => {
-    const r = await fetch("/api/admin/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, note: note[id] || "" }) });
+    const r = await fetch("/api/admin/orders", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, note: note[id] || "" }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setNote({ ...note, [id]: "" }); load(); }
     else alert(d.error || "Failed");
@@ -2791,6 +2977,7 @@ const ADMIN_TABS: { id: string; label: string; desc: string }[] = [
   { id: "fees", label: "Fee Config", desc: "Fee per course×mode×duration×medium×branch" },
   { id: "admins", label: "Admins", desc: "Manage admin users (super_admin only)" },
   { id: "carousel", label: "Carousel", desc: "Home page carousel (super_admin only)" },
+  { id: "email", label: "Email", desc: "Send updates to users (SMTP)" },
 ];
 
 function AdminsTab() {
@@ -2804,10 +2991,13 @@ function AdminsTab() {
   const [form, setForm] = useState({ email: "", password: "", name: "", role: "admissions" as Role, permissions: [] as string[], isActive: true });
 
   const load = () => {
-    fetch("/api/admin/users", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => Array.isArray(d) && setAdmins(d))
-      .catch(() => {});
+    fetch("/api/admin/users", { cache: "no-store", credentials: "same-origin" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setMsg({ type: "err", text: d.error || `Load failed (${r.status}) — ensure you are logged in as super_admin` }); return; }
+        if (Array.isArray(d)) setAdmins(d);
+      })
+      .catch(() => setMsg({ type: "err", text: "Failed to load admins — check network / session" }));
   };
   useEffect(() => { load(); }, []);
 
@@ -2821,39 +3011,48 @@ function AdminsTab() {
     if (!form.email.trim() || !form.email.includes("@")) return setMsg({ type: "err", text: "Valid email required" });
     if (!form.password || form.password.length < 6) return setMsg({ type: "err", text: "Password min 6 chars" });
     if (!form.name.trim()) return setMsg({ type: "err", text: "Name required" });
-    const r = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(form) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setMsg({ type: "ok", text: `Created ${d.admin.email} — must change password on first login` });
       setShowCreate(false);
       setForm({ email: "", password: "", name: "", role: "admissions", permissions: [], isActive: true });
       load();
-    } else setMsg({ type: "err", text: d.error || "Failed" });
+    } else {
+      const hint = r.status === 401 ? " (session expired — log in again as super_admin)" : r.status === 403 ? " (need super_admin)" : "";
+      setMsg({ type: "err", text: (d.error || "Failed") + hint });
+    }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
-    const r = await fetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editing.id, name: editing.name, role: editing.role, permissions: editing.permissions, isActive: editing.isActive }) });
+    const r = await fetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: editing.id, name: editing.name, role: editing.role, permissions: editing.permissions, isActive: editing.isActive }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setMsg({ type: "ok", text: "Updated" });
       setEditing(null);
       load();
-    } else setMsg({ type: "err", text: d.error || "Failed" });
+    } else {
+      const hint = r.status === 401 ? " (session expired)" : r.status === 403 ? " (need super_admin)" : "";
+      setMsg({ type: "err", text: (d.error || "Failed") + hint });
+    }
   };
 
   const del = async (id: string, email: string) => {
     if (!confirm(`Delete admin ${email}? This will also delete their Supabase auth and sessions.`)) return;
-    const r = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const r = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
     const d = await r.json().catch(() => ({}));
     if (r.ok) { setMsg({ type: "ok", text: "Deleted" }); load(); }
-    else setMsg({ type: "err", text: d.error || "Failed" });
+    else {
+      const hint = r.status === 401 ? " (session expired)" : r.status === 403 ? " (need super_admin)" : "";
+      setMsg({ type: "err", text: (d.error || "Failed") + hint });
+    }
   };
 
   const reset = async () => {
     if (!resetTarget) return;
     if (!resetPw || resetPw.length < 6) return setMsg({ type: "err", text: "Password min 6 chars" });
-    const r = await fetch("/api/admin/users/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: resetTarget.id, newPassword: resetPw }) });
+    const r = await fetch("/api/admin/users/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: resetTarget.id, newPassword: resetPw }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setMsg({ type: "ok", text: `Password reset for ${resetTarget.email} — they must change on next login` });
@@ -3042,7 +3241,7 @@ function CarouselTab() {
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
-  const load = () => fetch("/api/admin/carousel", { cache: "no-store" }).then((r) => r.json()).then((d) => Array.isArray(d) && setSlides(d)).catch(() => {});
+  const load = () => fetch("/api/admin/carousel", { credentials: "same-origin",  cache: "no-store" }).then((r) => r.json()).then((d) => Array.isArray(d) && setSlides(d)).catch(() => {});
   useEffect(() => { load(); }, []);
 
   const upload = async (file?: File) => {
@@ -3051,7 +3250,7 @@ function CarouselTab() {
     setUploading(true);
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch("/api/admin/carousel/upload", { method: "POST", body: fd });
+    const r = await fetch("/api/admin/carousel/upload", { credentials: "same-origin",  method: "POST", body: fd });
     const d = await r.json().catch(() => ({}));
     setUploading(false);
     if (r.ok && d.url) {
@@ -3063,7 +3262,7 @@ function CarouselTab() {
   const save = async () => {
     if (!form.image.trim()) return setMsg({ type: "err", text: "Image required — upload or paste URL" });
     const payload: any = editing ? { id: editing.id, ...form } : form;
-    const r = await fetch("/api/admin/carousel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const r = await fetch("/api/admin/carousel", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setMsg({ type: "ok", text: editing ? "Updated" : "Created" });
@@ -3085,7 +3284,7 @@ function CarouselTab() {
   };
 
   const toggle = async (s: any) => {
-    await fetch("/api/admin/carousel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, active: !s.active }) });
+    await fetch("/api/admin/carousel", { credentials: "same-origin",  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, active: !s.active }) });
     load();
   };
 
@@ -3095,8 +3294,8 @@ function CarouselTab() {
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= sorted.length) return;
     const a = sorted[idx], b = sorted[swapIdx];
-    await fetch("/api/admin/carousel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id, order: b.order }) });
-    await fetch("/api/admin/carousel", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.id, order: a.order }) });
+    await fetch("/api/admin/carousel", { credentials: "same-origin",  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id, order: b.order }) });
+    await fetch("/api/admin/carousel", { credentials: "same-origin",  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.id, order: a.order }) });
     load();
   };
 
@@ -3187,6 +3386,131 @@ function CarouselTab() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmailTab() {
+  const [smtp, setSmtp] = useState<any>(null);
+  const [tab, setTab] = useState<"single" | "bulk">("single");
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
+  const [html, setHtml] = useState("");
+  const [bulkType, setBulkType] = useState<"admissions" | "users">("admissions");
+  const [bulkCourse, setBulkCourse] = useState("");
+  const [bulkBranch, setBulkBranch] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [count, setCount] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [courseOptions, setCourseOptions] = useState<string[]>([]);
+
+  const loadSmtp = () => fetch("/api/admin/email", { credentials: "same-origin",  cache: "no-store" }).then((r) => r.json()).then(setSmtp).catch(() => {});
+  useEffect(() => {
+    loadSmtp();
+    fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const preview = async () => {
+    const qs = new URLSearchParams({ type: bulkType, course: bulkCourse, branch: bulkBranch, status: bulkStatus }).toString();
+    const r = await fetch(`/api/admin/email?${qs}`, { cache: "no-store" });
+    const d = await r.json();
+    setCount(d.count ?? 0);
+    setSmtp(d);
+  };
+
+  const sendSingle = async () => {
+    if (!to.trim() || !subject.trim() || !html.trim()) return setMsg({ type: "err", text: "to, subject, html required" });
+    setSending(true); setMsg(null);
+    const r = await fetch("/api/admin/email", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to, subject, html }) });
+    const d = await r.json().catch(() => ({}));
+    setSending(false);
+    if (r.ok) setMsg({ type: "ok", text: d.skipped ? `Logged (SMTP not configured) — would send to ${to}` : `Sent to ${to} ✓ ${d.id || ""}` });
+    else setMsg({ type: "err", text: d.error || "Failed" });
+  };
+
+  const sendBulk = async () => {
+    if (!subject.trim() || !html.trim()) return setMsg({ type: "err", text: "subject and html required" });
+    setSending(true); setMsg(null);
+    const r = await fetch("/api/admin/email", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject, html, bulk: { type: bulkType, filter: { course: bulkCourse || undefined, branch: bulkBranch || undefined, status: bulkStatus || undefined } } }) });
+    const d = await r.json().catch(() => ({}));
+    setSending(false);
+    if (r.ok) setMsg({ type: "ok", text: `Bulk: sent ${d.sent} • failed ${d.failed} • total ${d.recipients} ${bulkType}` + (d.errors?.length ? ` • ${d.errors.slice(0,2).join("; ")}` : "") });
+    else setMsg({ type: "err", text: d.error || "Failed" });
+  };
+
+  const sendTest = async () => {
+    const r = await fetch("/api/admin/email", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: smtp?.smtpFrom || to || "test@example.com", subject: "Ayaan SMTP test ✓", html: "<p>This is a test from Ayaan Admin → Email. If you see this, SMTP works.</p>" }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) setMsg({ type: "ok", text: d.skipped ? "Logged (SMTP not configured)" : `Test sent ✓ ${d.id || ""}` });
+    else setMsg({ type: "err", text: d.error || "Failed" });
+  };
+
+  return (
+    <div className="grid gap-6">
+      <div className="card p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div><h2 className="font-semibold text-navy-900">Email • Send updates to users (SMTP)</h2><p className="text-xs text-slate-500 mt-1">Auto-emails already fire on: application submitted / approved / rejected / clarification, discount, payment acknowledged/rejected. Use this for custom updates (admission, payments, or any announcement).</p></div>
+          <button onClick={loadSmtp} className="px-3 py-1.5 rounded-full bg-white border text-xs">Refresh</button>
+        </div>
+        <div className={`mt-3 px-3 py-2 rounded-xl border text-xs flex items-center gap-2 ${smtp?.configured ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+          <span className={`w-2 h-2 rounded-full ${smtp?.configured ? "bg-emerald-500" : "bg-amber-500"}`} /> {smtp?.configured ? `SMTP ready — ${smtp.smtpHost} • from ${smtp.smtpFrom}` : "SMTP not configured — emails will be logged, not sent. Set SMTP_HOST/PORT/USER/PASS/FROM in env (see .env.example)"}
+          <button onClick={sendTest} className="ml-auto px-3 py-1 rounded-full bg-white border text-xs">Send test</button>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button onClick={() => setTab("single")} className={`px-4 py-2 rounded-full text-xs font-medium border ${tab === "single" ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>Single / Comma-separated</button>
+          <button onClick={() => setTab("bulk")} className={`px-4 py-2 rounded-full text-xs font-medium border ${tab === "bulk" ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>Bulk by filter</button>
+        </div>
+      </div>
+
+      {tab === "single" ? (
+        <div className="card p-6 grid gap-3">
+          <h3 className="font-semibold text-navy-900 text-sm">Send to specific emails</h3>
+          <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="to@example.com, cc2@example.com" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject (e.g., Admission update — Your batch starts 1st Oct)" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+          <textarea value={html} onChange={(e) => setHtml(e.target.value)} placeholder="HTML body (you can paste &lt;p&gt;… or plain text — will be wrapped in Ayaan header/footer automatically)" rows={7} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-mono" />
+          <div className="flex gap-2">
+            <button onClick={sendSingle} disabled={sending} className="btn-primary justify-center disabled:opacity-50">{sending ? "Sending…" : "Send Email →"}</button>
+            <button onClick={() => { setTo(""); setSubject(""); setHtml(""); setMsg(null); }} className="px-4 py-2.5 rounded-full border text-sm">Clear</button>
+          </div>
+          {msg && <div className={`px-3 py-2 rounded-xl border text-xs ${msg.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-600"}`}>{msg.text}</div>}
+          <div className="text-[11px] text-slate-400">Supports comma-separated `to`. Use HTML for rich content; plain text will be wrapped.</div>
+        </div>
+      ) : (
+        <div className="card p-6 grid gap-3">
+          <h3 className="font-semibold text-navy-900 text-sm">Bulk — filtered admissions or users</h3>
+          <div className="grid sm:grid-cols-4 gap-2">
+            <select value={bulkType} onChange={(e) => setBulkType(e.target.value as any)} className="px-3 py-2.5 rounded-xl border bg-white text-sm"><option value="admissions">Admissions (applicants)</option><option value="users">Users (students)</option></select>
+            <select value={bulkCourse} onChange={(e) => setBulkCourse(e.target.value)} className="px-3 py-2.5 rounded-xl border bg-white text-sm"><option value="">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+            <select value={bulkBranch} onChange={(e) => setBulkBranch(e.target.value)} className="px-3 py-2.5 rounded-xl border bg-white text-sm"><option value="">All branches</option>{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+            <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} className="px-3 py-2.5 rounded-xl border bg-white text-sm"><option value="">All statuses</option><option value="pending">pending</option><option value="approved">approved</option><option value="clarification_required">clarification_required</option><option value="discount_pending">discount_pending</option><option value="rejected">rejected</option></select>
+          </div>
+          <div className="flex gap-2 items-center">
+            <button onClick={preview} className="px-4 py-2 rounded-full bg-white border text-xs">Preview count</button>
+            {count !== null && <span className="text-xs px-3 py-2 rounded-full bg-slate-50 border">{count} recipients match</span>}
+          </div>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+          <textarea value={html} onChange={(e) => setHtml(e.target.value)} placeholder="HTML body" rows={7} className="px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-mono" />
+          <div className="flex gap-2">
+            <button onClick={sendBulk} disabled={sending} className="btn-primary justify-center disabled:opacity-50">{sending ? "Sending bulk…" : `Send bulk → ${count !== null ? count + " recipients" : ""}`}</button>
+            <button onClick={() => { setBulkCourse(""); setBulkBranch(""); setBulkStatus(""); setCount(null); setMsg(null); }} className="px-4 py-2.5 rounded-full border text-sm">Clear filters</button>
+          </div>
+          {msg && <div className={`px-3 py-2 rounded-xl border text-xs ${msg.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-600"}`}>{msg.text}</div>}
+          <div className="text-[11px] text-slate-400">Bulk sends sequentially (rate-limited) and is audit-logged. Max 2000 per send.</div>
         </div>
       )}
     </div>

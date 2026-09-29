@@ -16,6 +16,7 @@ function publicView(a: any) {
     email: a.email,
     address: a.address,
     reference: a.reference,
+    aadharCardNumber: a.aadharCardNumber || "",
     branch: a.branch,
     course: a.course,
     courseType: a.courseType,
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { token, name, fatherName, phone, address, reference, branch, course, courseType, medium, mode, batchId, photo, addonIds } = body;
+  const { token, name, fatherName, phone, address, reference, aadharCardNumber, branch, course, courseType, medium, mode, batchId, photo, addonIds } = body;
   if (!token) return NextResponse.json({ error: "token required" }, { status: 400 });
   const a = await prisma.admission.findUnique({ where: { clarificationToken: token } });
   if (!a) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -61,6 +62,10 @@ export async function POST(req: NextRequest) {
   }
   if (address !== undefined) data.address = String(address).trim();
   if (reference !== undefined) data.reference = String(reference || "").trim();
+  if (aadharCardNumber !== undefined) {
+    if (!/^[0-9]{12}$/.test(String(aadharCardNumber).trim())) return NextResponse.json({ error: "Aadhar must be 12 digits" }, { status: 400 });
+    data.aadharCardNumber = String(aadharCardNumber).trim();
+  }
   if (branch !== undefined) data.branch = String(branch).trim();
   if (course !== undefined) data.course = String(course);
   if (courseType !== undefined) data.courseType = String(courseType);

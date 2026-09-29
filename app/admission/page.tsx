@@ -13,7 +13,7 @@ const STEPS = ["Personal Details", "Course & Batch", "Fee & Payment", "Review"];
 export default function AdmissionPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
-    name: "", fatherName: "", phone: "", email: "", address: "", reference: "",
+    name: "", fatherName: "", phone: "", email: "", address: "", reference: "", aadharCardNumber: "",
     branch: "Warangal", course: "SI", courseType: "Regular", medium: "Telugu", mode: "Residential",
     durationId: "", batchId: "", photo: "",
   });
@@ -138,6 +138,7 @@ export default function AdmissionPage() {
       if (!/^[0-9]{10}$/.test(form.phone.trim())) return "Valid 10-digit mobile required";
       if (!form.email.trim() || !form.email.includes("@")) return "Valid email required";
       if (!form.address.trim()) return "Address required";
+      if (!/^[0-9]{12}$/.test(String(form.aadharCardNumber || "").trim())) return "Valid 12-digit Aadhar number required";
     }
     if (s === 1) {
       if (!form.durationId) return "Select a duration";
@@ -252,7 +253,11 @@ export default function AdmissionPage() {
                 </div>
                 <div><label className="text-xs font-medium text-slate-700">Address *</label><textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="H.No, Street, Village, District, State - PIN" rows={2} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" /></div>
                 <div className="grid sm:grid-cols-2 gap-4">
+                  <div><label className="text-xs font-medium text-slate-700">Aadhar Card Number * (12 digits)</label><input value={form.aadharCardNumber} onChange={(e) => setForm({ ...form, aadharCardNumber: e.target.value.replace(/\D/g, "").slice(0,12) })} placeholder="1234 5678 9012" inputMode="numeric" maxLength={12} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm tracking-widest" /></div>
                   <div><label className="text-xs font-medium text-slate-700">Reference (optional)</label><input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="Referred by / Friend / Ad" className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" /></div>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="hidden sm:block"></div>
                   <div>
                     <label className="text-xs font-medium text-slate-700">Passport Photo (JPG/PNG/WEBP, max 2MB)</label>
                     <div className="mt-1 flex items-center gap-3">
@@ -364,6 +369,7 @@ export default function AdmissionPage() {
                 {[
                   ["Name", `${form.name} S/o ${form.fatherName}`],
                   ["Contact", `${form.email} • ${form.phone}`],
+                  ["Aadhar", form.aadharCardNumber ? form.aadharCardNumber.replace(/(.{4})/g, "$1 ").trim() : "—"],
                   ["Address", form.address],
                   ["Course", `${form.course} • ${form.courseType} • ${form.medium} • ${form.mode}`],
                   ["Duration", selDuration ? selDuration.name : "—"],

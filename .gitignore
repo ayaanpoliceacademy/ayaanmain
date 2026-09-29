@@ -38,3 +38,8 @@ yarn-error.log*
 # IDE
 .vscode/
 .idea/
+
+# local dev logs + temp test scripts (never commit)
+dev_*.log
+_*.mjs
+*.log

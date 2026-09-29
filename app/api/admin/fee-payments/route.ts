@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { newReceiptNo, audit } from "@/lib/identifiers";
+import { sendEmail, tplPaymentAck } from "@/lib/email";
 
 async function refreshInstallment(tx: any, installmentId: string) {
   const allocs = await tx.paymentAllocation.findMany({ where: { installmentId } });
@@ -81,6 +82,10 @@ export async function POST(req: NextRequest) {
       });
     });
     await audit("payment", id, actor, "payment_acknowledged", `Receipt ${receiptNo}; ` + rows.map((r) => `${r.installmentId}:₹${r.amount}`).join(", "));
+    try {
+      const adm = await prisma.admission.findUnique({ where: { id: payment.admissionId } });
+      if (adm) { const tpl = tplPaymentAck(adm, payment, "acknowledged"); sendEmail({ to: adm.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); }
+    } catch {}
     const updated = await prisma.feePayment.findUnique({ where: { id }, include: { allocations: { include: { installment: true } }, receipt: true } });
     return NextResponse.json({ ok: true, receiptNo, payment: updated });
   }
@@ -90,6 +95,10 @@ export async function POST(req: NextRequest) {
     if (payment.status === "acknowledged") return NextResponse.json({ error: "Already acknowledged — cannot reject" }, { status: 400 });
     await prisma.feePayment.update({ where: { id }, data: { status: "rejected", note: note ? String(note).slice(0, 500) : payment.note } });
     await audit("payment", id, actor, "payment_rejected", note || "");
+    try {
+      const adm = await prisma.admission.findUnique({ where: { id: payment.admissionId } });
+      if (adm) { const tpl = tplPaymentAck(adm, payment, "rejected", note); sendEmail({ to: adm.email, subject: tpl.subject, html: tpl.html }).catch(()=>{}); }
+    } catch {}
     return NextResponse.json({ ok: true });
   }
 
