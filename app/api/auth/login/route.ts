@@ -93,8 +93,11 @@ export async function GET(req: NextRequest) {
   const hashed = hashToken(token);
   let session: any = await prisma.session.findUnique({ where: { token: hashed } });
   if (!session) session = await prisma.session.findUnique({ where: { token } });
-  if (!session || session.expiresAt < new Date() || session.role !== "student") {
+  if (!session || session.expiresAt < new Date()) {
     if (session) try { await prisma.session.delete({ where: { token: hashed } }); } catch { try { await prisma.session.delete({ where: { token } }); } catch {} }
+    return NextResponse.json({ authenticated: false }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (session.role !== "student") {
     return NextResponse.json({ authenticated: false }, { headers: { "Cache-Control": "no-store" } });
   }
   const user = await prisma.user.findUnique({ where: { id: session.userId } });
