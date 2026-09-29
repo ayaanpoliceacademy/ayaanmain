@@ -56,13 +56,20 @@ function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
 }
 
 const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+// NOTE: validation throws only at runtime, never during `next build`
+// (NEXT_PHASE=phase-production-build). Build only imports modules to collect
+// page data — failing there turns a fixable env mistake into a failed deploy.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 if (!databaseUrl) {
-  throw new Error("Missing DATABASE_URL — set it in Vercel Project → Settings → Environment Variables, then Redeploy.");
+  if (!isBuildPhase) {
+    throw new Error("Missing DATABASE_URL — set it in Vercel Project → Settings → Environment Variables, then Redeploy.");
+  }
+} else if (/[<>]/.test(databaseUrl)) {
+  if (!isBuildPhase) {
+    throw new Error("DATABASE_URL contains a <placeholder> (e.g. <region>) — replace it with the real value from Supabase Dashboard → Settings → Database → Transaction pooler (e.g. ap-southeast-1), then Redeploy.");
+  }
 }
-if (/[<>]/.test(databaseUrl)) {
-  throw new Error("DATABASE_URL contains a <placeholder> (e.g. <region>) — replace it with the real value from Supabase Dashboard → Settings → Database → Transaction pooler (e.g. ap-southeast-1), then Redeploy.");
-}
-if (databaseUrl !== process.env.DATABASE_URL) process.env.DATABASE_URL = databaseUrl;
+if (databaseUrl && databaseUrl !== process.env.DATABASE_URL) process.env.DATABASE_URL = databaseUrl;
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
