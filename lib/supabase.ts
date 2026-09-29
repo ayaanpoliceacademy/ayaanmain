@@ -1,8 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+const missing = [
+  !supabaseUrl && "NEXT_PUBLIC_SUPABASE_URL",
+  !supabaseAnonKey && "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  !supabaseServiceKey && "SUPABASE_SERVICE_ROLE_KEY",
+].filter(Boolean) as string[];
+if (missing.length > 0) {
+  throw new Error(
+    `Missing Supabase env vars: ${missing.join(", ")} — set them in Vercel Project → Settings → Environment Variables (Production + Preview + Development), then Redeploy.`
+  );
+}
 
 // Critical guard: never ship service_role to the browser in production
 if (process.env.NODE_ENV === "production" && supabaseAnonKey === supabaseServiceKey) {
