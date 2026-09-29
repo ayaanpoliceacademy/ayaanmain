@@ -59,6 +59,9 @@ const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
 if (!databaseUrl) {
   throw new Error("Missing DATABASE_URL — set it in Vercel Project → Settings → Environment Variables, then Redeploy.");
 }
+if (/[<>]/.test(databaseUrl)) {
+  throw new Error("DATABASE_URL contains a <placeholder> (e.g. <region>) — replace it with the real value from Supabase Dashboard → Settings → Database → Transaction pooler (e.g. ap-southeast-1), then Redeploy.");
+}
 if (databaseUrl !== process.env.DATABASE_URL) process.env.DATABASE_URL = databaseUrl;
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };

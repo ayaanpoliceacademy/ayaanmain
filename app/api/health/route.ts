@@ -33,6 +33,7 @@ function urlShape(raw: string | undefined) {
     hadKeyPrefix,
     hadWhitespace,
     quoted: v !== trimmed,
+    hasPlaceholders: /[<>]/.test(v),
     user: user || null,
     host,
     port,
