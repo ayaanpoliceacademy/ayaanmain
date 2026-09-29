@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   let username = String(body.username || "").trim();
 
   if (!email || !email.includes("@")) return NextResponse.json({ error: "Valid email required" }, { status: 400 });
-  if (!password || password.length < 8) return NextResponse.json({ error: "Password required (min 6 chars)" }, { status: 400 });
+  if (!password || password.length < 8) return NextResponse.json({ error: "Password required (min 8 chars)" }, { status: 400 });
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   if (!ALLOWED_ROLES.includes(role)) return NextResponse.json({ error: `Role must be one of: ${ALLOWED_ROLES.join(", ")}` }, { status: 400 });
 

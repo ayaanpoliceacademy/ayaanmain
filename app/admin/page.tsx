@@ -3009,7 +3009,7 @@ function AdminsTab() {
   const create = async () => {
     setMsg(null);
     if (!form.email.trim() || !form.email.includes("@")) return setMsg({ type: "err", text: "Valid email required" });
-    if (!form.password || form.password.length < 6) return setMsg({ type: "err", text: "Password min 6 chars" });
+    if (!form.password || form.password.length < 8) return setMsg({ type: "err", text: "Password min 8 chars" });
     if (!form.name.trim()) return setMsg({ type: "err", text: "Name required" });
     const r = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(form) });
     const d = await r.json().catch(() => ({}));
@@ -3051,7 +3051,7 @@ function AdminsTab() {
 
   const reset = async () => {
     if (!resetTarget) return;
-    if (!resetPw || resetPw.length < 6) return setMsg({ type: "err", text: "Password min 6 chars" });
+    if (!resetPw || resetPw.length < 8) return setMsg({ type: "err", text: "Password min 8 chars" });
     const r = await fetch("/api/admin/users/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: resetTarget.id, newPassword: resetPw }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3131,7 +3131,7 @@ function AdminsTab() {
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium">Temporary Password *</label>
-                  <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 chars" type="password" className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm" />
+                  <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 8 chars" type="password" className="mt-1 w-full px-3 py-2.5 rounded-xl border text-sm" />
                   <div className="text-[11px] text-amber-600 mt-1">User must change on first login</div>
                 </div>
                 <div>
@@ -3220,7 +3220,7 @@ function AdminsTab() {
           <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-navy-900">Reset Password — {resetTarget.email}</h3>
             <p className="text-xs text-slate-500 mt-1">Sets new temporary password and forces change on next login. Old sessions will be revoked.</p>
-            <input value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New temporary password (min 6)" type="password" className="mt-4 w-full px-3 py-2.5 rounded-xl border text-sm" />
+            <input value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New temporary password (min 8)" type="password" className="mt-4 w-full px-3 py-2.5 rounded-xl border text-sm" />
             <div className="mt-4 flex gap-2">
               <button onClick={reset} className="flex-1 btn-primary justify-center">Reset & Force Change →</button>
               <button onClick={() => setResetTarget(null)} className="px-4 py-2.5 rounded-full border text-sm">Cancel</button>
