@@ -11,7 +11,10 @@ export async function POST(req: NextRequest) {
   // Rate limit: 5 login attempts per 10 min per IP
   const ip = getClientIp(req);
   const rl = rateLimit(`admin_login:${ip}`, 5, 10 * 60 * 1000);
-  if (!rl.allowed) return NextResponse.json({ ok: false, error: "Too many attempts — try again later" }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } });
+  if (!rl.allowed) {
+    console.log("[auth] login rate-limited POST /api/admin/login");
+    return NextResponse.json({ ok: false, error: "Too many attempts — try again later" }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } });
+  }
 
   const { username, email, password } = await req.json();
   const raw = String(username || email || "").trim();
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error || !data.user) {
-    // Try to get more specific error from Supabase
+    console.log(`[auth] login bad-credentials POST /api/admin/login err=${error?.message || "?"}`);
     return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -43,11 +46,13 @@ export async function POST(req: NextRequest) {
   if (!admin) {
     // Uniform error to prevent enumeration
     await supabase.auth.signOut();
+    console.log("[auth] login no-admin-record POST /api/admin/login");
     return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
   }
 
   if ((admin as any).isActive === false) {
     await supabase.auth.signOut();
+    console.log("[auth] login inactive POST /api/admin/login");
     return NextResponse.json({ ok: false, error: "Account is deactivated — contact super admin" }, { status: 403 });
   }
 
@@ -70,6 +75,7 @@ export async function POST(req: NextRequest) {
   await prisma.session.create({
     data: { token: hashed, userId: admin.id, role: admin.role, username: admin.username, name: admin.name, expiresAt },
   });
+  console.log(`[auth] login ok POST /api/admin/login role=${admin.role}`);
 
   // Also sign out the temporary Supabase session (we use our own session cookie)
   await supabase.auth.signOut();
