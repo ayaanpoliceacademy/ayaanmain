@@ -109,7 +109,9 @@ export async function requireAdminSession(req: NextRequest, allowedRoles?: strin
     if (!admin && session.username && session.username.includes("@")) {
       admin = await prisma.admin.findUnique({ where: { email: session.username.toLowerCase() } });
     }
-  } catch {}
+  } catch (e: any) {
+    console.log(`[auth] admin-lookup-threw ${req.method} ${dbgPath} code=${e?.code ?? e?.errorCode ?? "?"}`);
+  }
   if (admin) {
     if (admin.isActive === false) {
       return { session: null, error: NextResponse.json({ error: "Account deactivated — contact super admin" }, { status: 403 }) };
@@ -149,6 +151,7 @@ export async function requireAdminSession(req: NextRequest, allowedRoles?: strin
     // No admin found but session exists — could be orphan, revoke
     // If allowedRoles requires super_admin and we can't verify admin, deny
     if (allowedRoles && allowedRoles.includes("super_admin") && allowedRoles.length === 1) {
+      console.log(`[auth] 401 orphan-admin ${req.method} ${dbgPath} role=${session.role}`);
       return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
     }
   }
