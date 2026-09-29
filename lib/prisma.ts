@@ -8,9 +8,20 @@ import { PrismaClient } from "@prisma/client";
 function normalizeDatabaseUrl(raw: string | undefined): string | undefined {
   if (!raw) return raw;
   let url = raw.trim();
+  // Strip KEY= prefix if the whole `DATABASE_URL=...` line was pasted as the value
+  const keyPrefix = url.match(/^(DATABASE_URL|DIRECT_URL|POSTGRES_URL|POSTGRES_PRISMA_URL)\s*=\s*/i);
+  if (keyPrefix) {
+    console.warn("[prisma] DATABASE_URL included the KEY= prefix — stripped. Paste only the URL value in the env dashboard.");
+    url = url.slice(keyPrefix[0].length).trim();
+  }
   if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
     console.warn("[prisma] DATABASE_URL had surrounding quotes — stripped. Remove them in the env dashboard.");
     url = url.slice(1, -1).trim();
+  }
+  // Connection strings never contain whitespace — a pasted line-break/space breaks parsing
+  if (/\s/.test(url)) {
+    console.warn("[prisma] DATABASE_URL contained whitespace/newlines — removed. Check the pasted value.");
+    url = url.replace(/\s+/g, "");
   }
   const qi = url.indexOf("?");
   if (qi >= 0) {

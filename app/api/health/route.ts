@@ -7,7 +7,13 @@ export const dynamic = "force-dynamic";
 // reachability with Prisma error code. Safe to expose.
 function urlShape(raw: string | undefined) {
   if (!raw) return { present: false };
-  const v = raw.trim().replace(/^["']|["']$/g, "");
+  const trimmed = raw.trim();
+  const hadKeyPrefix = /^(DATABASE_URL|DIRECT_URL|POSTGRES_URL|POSTGRES_PRISMA_URL)\s*=/i.test(trimmed);
+  const hadWhitespace = /\s/.test(trimmed);
+  const v = trimmed
+    .replace(/^(DATABASE_URL|DIRECT_URL|POSTGRES_URL|POSTGRES_PRISMA_URL)\s*=\s*/i, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, "");
   const qi = v.indexOf("?");
   const head = qi >= 0 ? v.slice(0, qi) : v;
   const tail = qi >= 0 ? v.slice(qi + 1) : "";
@@ -20,7 +26,9 @@ function urlShape(raw: string | undefined) {
   } catch { authHasRawAt = true; }
   return {
     present: true,
-    quoted: v !== raw.trim(),
+    hadKeyPrefix,
+    hadWhitespace,
+    quoted: v !== trimmed,
     host: (m && m[3]) || null,
     port: (m && m[5]) || null,
     pooler: !!((m && m[3] && m[3].includes("pooler")) || tail.includes("pgbouncer=true")),
