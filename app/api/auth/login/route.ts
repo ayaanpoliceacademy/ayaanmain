@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
   try {
     const existing = await prisma.session.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" } });
-    if (existing.length >= 3) await prisma.session.deleteMany({ where: { id: { in: existing.slice(0, existing.length - 2).map((s) => s.id) } } });
+    if (existing.length >= 10) await prisma.session.deleteMany({ where: { id: { in: existing.slice(0, existing.length - 9).map((s) => s.id) } } });
   } catch {}
   await prisma.session.create({ data: { token: hashed, userId: user.id, role: "student", username: user.email, name: user.name, expiresAt } });
 

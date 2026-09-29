@@ -82,10 +82,16 @@ function tabForRequest(req: NextRequest): string | null {
 
 export async function requireAdminSession(req: NextRequest, allowedRoles?: string[]): Promise<{ session: any; admin?: any; error?: NextResponse }> {
   const token = req.cookies.get("ayaan_session")?.value;
-  if (!token) return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  const dbgPath = (() => { try { return new URL(req.url).pathname; } catch { return "?"; } })();
+  // Safe diagnostics: cookie presence + path only, never token values
+  if (!token) {
+    console.log(`[auth] 401 no-cookie ${req.method} ${dbgPath}`);
+    return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
   const session = await findSessionByToken(token);
   if (!session || session.expiresAt < new Date()) {
     if (session) await deleteSessionByToken(token);
+    console.log(`[auth] 401 bad-session ${req.method} ${dbgPath} expired=${!!session}`);
     return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   if (session.role === "student") {

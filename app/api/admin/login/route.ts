@@ -59,11 +59,11 @@ export async function POST(req: NextRequest) {
   const token = crypto.randomBytes(32).toString("hex");
   const hashed = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-  // Limit concurrent sessions: keep max 3 per admin, delete oldest
+  // Limit concurrent sessions: keep max 10 per admin, delete oldest
   try {
     const existing = await prisma.session.findMany({ where: { userId: admin.id }, orderBy: { createdAt: "asc" } });
-    if (existing.length >= 3) {
-      const toDelete = existing.slice(0, existing.length - 2);
+    if (existing.length >= 10) {
+      const toDelete = existing.slice(0, existing.length - 9);
       await prisma.session.deleteMany({ where: { id: { in: toDelete.map((s) => s.id) } } });
     }
   } catch {}
