@@ -2488,6 +2488,23 @@ function DuesTab() {
   const [dueEdit, setDueEdit] = useState<Record<string, { date: string; reason: string }>>({});
   const [dueHist, setDueHist] = useState<Record<string, any[]>>({});
   const [f, setF] = useState({ due: "all", status: "all", branch: "", course: "", batch: "", from: "", to: "", q: "" });
+  const [duesLoaded, setDuesLoaded] = useState(false);
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [courseOptions, setCourseOptions] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
+  }, []);
 
   const loadQueue = () =>
     Promise.all([
@@ -2517,8 +2534,15 @@ function DuesTab() {
     const p = new URLSearchParams({ due: f.due, status: f.status, branch: f.branch, course: f.course, batch: f.batch, from: f.from, to: f.to, q: f.q });
     const r = await fetch(`/api/admin/dues?${p.toString()}`, { cache: "no-store" });
     const d = await r.json().catch(() => []);
-    if (Array.isArray(d)) setDuesRows(d);
+    if (Array.isArray(d)) { setDuesRows(d); setDuesLoaded(true); }
   };
+  // Live search: debounce the text query into an auto reload
+  useEffect(() => {
+    if (view !== "dues" || !duesLoaded) return;
+    const t = setTimeout(() => { loadDues(); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.q]);
   const loadReceipts = async () => {
     const r = await fetch("/api/admin/receipts", { credentials: "same-origin",  cache: "no-store" });
     const d = await r.json().catch(() => []);
@@ -2590,9 +2614,23 @@ function DuesTab() {
     <div className="grid gap-4">
       <div className="card p-4 flex gap-2 flex-wrap">
         {([["queue", "Verify Queue"], ["workspace", "Student Workspace"], ["dues", "Due Payments"], ["receipts", "Receipts"]] as const).map(([v, l]) => (
-          <button key={v} onClick={() => { setView(v); if (v === "receipts") loadReceipts(); }} className={`px-4 py-2 rounded-full text-sm font-medium border ${view === v ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>{l}{v === "queue" && queue.length > 0 ? ` (${queue.length})` : ""}</button>
+          <button key={v} onClick={() => { setView(v); if (v === "receipts") loadReceipts(); if (v === "dues" && !duesLoaded) loadDues(); }} className={`px-4 py-2 rounded-full text-sm font-medium border ${view === v ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>{l}{v === "queue" && queue.length > 0 ? ` (${queue.length})` : ""}</button>
         ))}
       </div>
+      {(() => {
+        const totalOut = duesRows.reduce((s: number, r: any) => s + Number(r.installment?.outstanding || 0), 0);
+        const overdueRows = duesRows.filter((r: any) => r.installment?.dueStatus === "Overdue");
+        const overdueAmt = overdueRows.reduce((s: number, r: any) => s + Number(r.installment?.outstanding || 0), 0);
+        const pendingCount = duesRows.filter((r: any) => r.installment?.status === "pending").length;
+        return (
+          <div className="grid sm:grid-cols-4 gap-3">
+            <div className="card p-4"><div className="text-xs text-slate-500">Total Outstanding</div><div className="text-xl font-bold text-red-700">₹{totalOut.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">{duesRows.length} dues rows</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Overdue</div><div className="text-xl font-bold text-red-700">₹{overdueAmt.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">{overdueRows.length} overdue</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Pending Payments</div><div className="text-xl font-bold text-amber-700">{pendingCount}</div><div className="text-[11px] text-slate-400">unpaid installments</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Verify Queue</div><div className="text-xl font-bold text-sky-700">{queue.length}</div><div className="text-[11px] text-slate-400">awaiting acknowledgement</div></div>
+          </div>
+        );
+      })()}
 
       {view === "queue" && (
         <div className="card p-6">
@@ -2603,8 +2641,8 @@ function DuesTab() {
               <div key={p.id} className="p-4 rounded-2xl border border-slate-200">
                 <div className="flex justify-between flex-wrap gap-2">
                   <div>
-                    <div className="text-sm font-semibold">₹{Number(p.amount).toLocaleString("en-IN")} <span className="capitalize font-normal text-slate-500">• {p.method}</span> <span className={`ml-1 text-xs px-2 py-0.5 rounded-full border ${p.status === "pending_verification" ? "bg-sky-50 border-sky-200 text-sky-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>{p.status.replace(/_/g, " ")}</span></div>
-                    <div className="text-xs text-slate-500 mt-1">{p.transactionId ? `Ref: ${p.transactionId} • ` : ""}{new Date(p.createdAt).toLocaleString("en-IN")} • by {p.recordedBy || "—"}</div>
+                    <div className="text-sm font-semibold">{p.admission?.name ? `${p.admission.name} • ` : ""}₹{Number(p.amount).toLocaleString("en-IN")} <span className="capitalize font-normal text-slate-500">• {p.method}</span> <span className={`ml-1 text-xs px-2 py-0.5 rounded-full border ${p.status === "pending_verification" ? "bg-sky-50 border-sky-200 text-sky-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>{p.status.replace(/_/g, " ")}</span></div>
+                    <div className="text-xs text-slate-500 mt-1">{p.admission?.applicationId ? `${p.admission.applicationId} • ` : ""}{p.admission?.course ? `${p.admission.course} • ` : ""}{p.transactionId ? `Ref: ${p.transactionId} • ` : ""}{new Date(p.createdAt).toLocaleString("en-IN")} • by {p.recordedBy || "—"}</div>
                   </div>
                   <div className="flex gap-1">
                     <button onClick={() => { setAckFor(ackFor === p.id ? null : p.id); setAllocRows([{ installmentId: "", amount: "" }]); }} className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs">Acknowledge + Allocate</button>
@@ -2753,14 +2791,17 @@ function DuesTab() {
           <div className="mt-3 grid sm:grid-cols-4 gap-2 text-xs">
             <select value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="all">All due states</option><option value="today">Due Today</option><option value="soon">Due Soon</option><option value="overdue">Overdue</option><option value="notdue">Not Due</option></select>
             <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="all">All payment states</option><option value="pending">Pending</option><option value="partial">Partially Paid</option><option value="paid">Paid</option></select>
-            <select value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All branches</option><option>Warangal</option><option>Hyderabad</option><option>Hanamkonda</option><option>Bollikunta (Residential)</option></select>
-            <select value={f.course} onChange={(e) => setF({ ...f, course: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All courses</option><option>SI</option><option>Constable</option><option>Groups</option><option>SSC GD</option><option>Defence</option><option>Army</option><option>UPSC</option></select>
+            <select value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All branches</option>{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+            <select value={f.course} onChange={(e) => setF({ ...f, course: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
             <input value={f.batch} onChange={(e) => setF({ ...f, batch: e.target.value })} placeholder="Batch name filter" className="px-2 py-2 rounded-lg border bg-white" />
             <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className="px-2 py-2 rounded-lg border bg-white" />
             <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className="px-2 py-2 rounded-lg border bg-white" />
             <input value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} placeholder="Search name, phone, IDs…" className="px-2 py-2 rounded-lg border bg-white" />
           </div>
-          <button onClick={loadDues} className="mt-3 px-5 py-2 rounded-full bg-navy-900 text-white text-xs">Apply Filters →</button>
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
+            <button onClick={loadDues} className="px-5 py-2 rounded-full bg-navy-900 text-white text-xs">Apply Filters →</button>
+            {(f.due !== "all" || f.status !== "all" || f.branch || f.course || f.batch || f.from || f.to || f.q) && <button onClick={() => { setF({ due: "all", status: "all", branch: "", course: "", batch: "", from: "", to: "", q: "" }); }} className="text-xs text-slate-500 hover:underline">Clear filters</button>}
+          </div>
           <div className="mt-4 overflow-auto border rounded-2xl max-h-[60vh]">
             <table className="w-full text-xs min-w-[900px]">
               <thead className="bg-slate-50 sticky top-0"><tr className="text-left text-slate-500"><th className="px-3 py-2">Student</th><th className="px-3 py-2">IDs</th><th className="px-3 py-2">Course/Branch/Batch</th><th className="px-3 py-2">Installment</th><th className="px-3 py-2 text-right">Original</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Outstanding</th><th className="px-3 py-2">Due</th><th className="px-3 py-2">Status</th></tr></thead>
@@ -2780,7 +2821,7 @@ function DuesTab() {
                 ))}
               </tbody>
             </table>
-            {duesRows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">Apply filters to load dues.</div>}
+            {duesRows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">{duesLoaded ? "No dues match these filters." : "Loading dues…"}</div>}
           </div>
         </div>
       )}

@@ -31,9 +31,16 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
+  // Attach admission identity so queue/workspace show WHO paid (batched, no N+1)
+  const admIds = Array.from(new Set(list.map((p: any) => p.admissionId).filter(Boolean)));
+  const adms = admIds.length > 0
+    ? await prisma.admission.findMany({ where: { id: { in: admIds } }, select: { id: true, applicationId: true, name: true, email: true, phone: true, course: true, branch: true } })
+    : [];
+  const admById = new Map(adms.map((a: any) => [a.id, a]));
+  const withAdm = list.map((p: any) => ({ ...p, admission: admById.get(p.admissionId) || null }));
   const filtered = q
-    ? list.filter((p) => `${p.transactionId || ""} ${p.receiptNo || ""}`.toLowerCase().includes(q))
-    : list;
+    ? withAdm.filter((p: any) => `${p.transactionId || ""} ${p.receiptNo || ""} ${p.admission?.name || ""} ${p.admission?.email || ""} ${p.admission?.applicationId || ""}`.toLowerCase().includes(q))
+    : withAdm;
   return NextResponse.json(filtered, { headers: { "Cache-Control": "no-store" } });
 }
 

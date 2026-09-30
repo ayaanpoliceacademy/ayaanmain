@@ -21,9 +21,14 @@ export async function GET(req: NextRequest) {
   if (installments.length === 0) return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
 
   const admIds = Array.from(new Set(installments.map((i) => i.admissionId)));
-  const admissions = await prisma.admission.findMany({ where: { id: { in: admIds } } });
+  const admissions = await prisma.admission.findMany({ where: { id: { in: admIds } }, select: { id: true, applicationId: true, applicantStudentId: true, name: true, email: true, phone: true, course: true, branch: true, batchId: true, batchName: true, studentId: true, finalFee: true, totalFee: true } });
   const admById: Record<string, (typeof admissions)[number]> = {};
   for (const a of admissions) admById[a.id] = a;
+  // Batch-load students (no N+1)
+  const stuIds = Array.from(new Set(admissions.map((a) => String(a.studentId || "")).filter(Boolean)));
+  const stuList = stuIds.length > 0 ? await prisma.user.findMany({ where: { id: { in: stuIds } }, select: { id: true, name: true, phone: true, email: true } }) : [];
+  const stuById: Record<string, (typeof stuList)[number]> = {};
+  for (const u of stuList) stuById[u.id] = u;
 
   const rows = [];
   for (const i of installments) {
@@ -41,7 +46,7 @@ export async function GET(req: NextRequest) {
     if (due === "soon" && ds !== "Due Soon") continue;
     if (due === "overdue" && ds !== "Overdue") continue;
     if (due === "notdue" && ds !== "Not Due") continue;
-    const user = a.studentId ? await prisma.user.findUnique({ where: { id: a.studentId } }) : null;
+    const user = a.studentId ? stuById[a.studentId] || null : null;
     const row = {
       installment: { ...i, outstanding, dueStatus: ds },
       admission: { id: a.id, applicationId: a.applicationId, studentId: a.applicantStudentId, course: a.course, branch: a.branch, batchName: a.batchName, finalFee: a.finalFee ?? a.totalFee },
