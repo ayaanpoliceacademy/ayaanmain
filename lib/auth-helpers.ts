@@ -175,9 +175,12 @@ export async function requireStudentSession(req: NextRequest): Promise<{ session
   const token = req.cookies.get("ayaan_session")?.value;
   if (!token) return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const session = await findSessionByToken(token);
-  if (!session || session.expiresAt < new Date() || session.role !== "student") {
+  if (!session || session.expiresAt < new Date()) {
     if (session) await deleteSessionByToken(token);
     return { session: null, error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+  if (session.role !== "student") {
+    return { session: null, error: NextResponse.json({ error: "Forbidden: Student access required" }, { status: 403 }) };
   }
   // Enforce isActive and mustChangePassword
   try {

@@ -43,3 +43,4 @@ yarn-error.log*
 dev_*.log
 _*.mjs
 *.log
+*.tsbuildinfo
