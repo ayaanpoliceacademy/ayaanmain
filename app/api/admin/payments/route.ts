@@ -85,12 +85,63 @@ export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
 
-  const [payments, usersCount] = await Promise.all([
-    prisma.payment.findMany({ orderBy: { createdAt: "desc" } }),
+  // Unified source: legacy manual payments + admission-flow fee payments.
+  // Registration splits become fee_payments (pending_verification) at submit and
+  // acknowledged ones (with receipts) after admin approval — both must show here.
+  const [payments, feePayments, usersCount] = await Promise.all([
+    prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 2000 }),
+    prisma.feePayment.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 2000,
+      include: { receipt: true },
+    }),
     prisma.user.count(),
   ]);
 
-  const formatted = payments.map((p: any) => {
+  // Batch-load related admissions + users for fee payment mapping (no N+1, skipped when empty)
+  const admIds = Array.from(new Set(feePayments.map((p) => p.admissionId).filter(Boolean)));
+  const stuIds = Array.from(new Set(feePayments.map((p) => String(p.studentId || "")).filter(Boolean)));
+  const [adms, users] = feePayments.length === 0 ? [[], []] : await Promise.all([
+    admIds.length > 0 ? prisma.admission.findMany({ where: { id: { in: admIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true } }) : Promise.resolve([]),
+    stuIds.length > 0 ? prisma.user.findMany({ where: { id: { in: stuIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true } }) : Promise.resolve([]),
+  ]);
+  const admById = new Map(adms.map((a: any) => [a.id, a]));
+  const userById = new Map(users.map((u: any) => [u.id, u]));
+
+  const feeMapped = feePayments.map((p: any) => {
+    const a = admById.get(p.admissionId);
+    const u = userById.get(String(p.studentId || ""));
+    const acked = p.status === "acknowledged";
+    const dead = p.status === "rejected" || p.status === "failed";
+    const amount = Number(p.amount || 0);
+    return {
+      id: p.id,
+      admissionId: p.admissionId,
+      student: u?.name || a?.name || "—",
+      email: u?.email || a?.email || "",
+      phone: u?.phone || a?.phone || "",
+      course: a?.course || u?.course || "",
+      medium: a?.medium || u?.medium || "",
+      mode: a?.mode || u?.mode || "",
+      amount,
+      paidAmount: acked ? amount : 0,
+      balance: acked ? 0 : amount,
+      paymentMethod: p.method,
+      transactionId: p.transactionId,
+      status: acked ? "collected" : p.status,
+      collected: acked ? amount : 0,
+      receivable: dead ? 0 : amount,
+      createdAt: p.createdAt.toISOString(),
+      dueDate: null,
+      screenshot: !!p.screenshot,
+      approved: acked,
+      src: "fee",
+      receiptNo: p.receiptNo || p.receipt?.receiptNo || null,
+      note: p.note || null,
+    };
+  });
+
+  const formatted = [...payments.map((p: any) => {
     const fee = p.amount;
     const paidAmount = p.paidAmount;
     const isPaid = paidAmount >= fee;
@@ -116,8 +167,9 @@ export async function GET(req: NextRequest) {
       dueDate: p.dueDate?.toISOString() || null,
       screenshot: !!p.screenshot,
       approved: p.status === "approved",
+      src: "legacy",
     };
-  });
+  }), ...feeMapped].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const totalReceivable = formatted.reduce((s: number, p: any) => s + p.receivable, 0);
   const totalCollected = formatted.reduce((s: number, p: any) => s + p.collected, 0);

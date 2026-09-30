@@ -106,6 +106,9 @@ model Admission {
   clarificationNote String?
   clarificationToken String? @unique // token for applicant correction page
 
+  @@index([status, createdAt])
+  @@index([email])
+  @@index([course, branch])
   @@map("admissions")
 }
 
@@ -126,9 +129,11 @@ model Payment {
   transactionId   String?
   screenshot      String?
   status          String
-  createdAt       DateTime @default(now())
-  approvedAt      DateTime?
+  createdAt DateTime @default(now())
+  approvedAt DateTime?
 
+  @@index([createdAt])
+  @@index([status])
   @@map("payments")
 }
 
@@ -229,6 +234,7 @@ model Installment {
 
   @@index([admissionId])
   @@index([studentId])
+  @@index([status])
   @@map("installments")
 }
 
@@ -253,6 +259,7 @@ model FeePayment {
   @@index([admissionId])
   @@index([studentId])
   @@index([status])
+  @@index([admissionId, status])
   @@map("fee_payments")
 }
 
@@ -349,9 +356,11 @@ model Lead {
   lastActionAt DateTime? // last action time
   dueDate      DateTime? // follow-up due date
   admissionId  String?   @unique // linked admission when converted
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@index([status, createdAt])
+  @@index([phone])
   @@map("leads")
 }
 

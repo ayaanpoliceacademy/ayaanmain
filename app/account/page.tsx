@@ -63,6 +63,60 @@ export default function AccountPage() {
     router.push("/login");
   };
 
+  const printIdCard = () => {
+    if (!data) return;
+    const uu = data.user;
+    const aa = data.admission || {};
+    const fmt = (d: any) => { try { return new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); } catch { return "—"; } };
+    const status = String(uu.digitalIdStatus || "active").toUpperCase();
+    const statusColor = status === "ACTIVE" ? "#059669" : "#dc2626";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Student ID — ${uu.studentId || uu.name}</title>
+    <style>
+      *{box-sizing:border-box} body{font-family:Inter,system-ui,Arial,sans-serif;margin:0;padding:24px;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .card{width:340px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0}
+      .top{background:#0f172a;color:#fff;padding:14px 16px;display:flex;gap:10px;align-items:center}
+      .logo{width:38px;height:38px;border-radius:10px;background:#fff;color:#0f172a;display:grid;place-items:center;font-weight:800}
+      .top h1{margin:0;font-size:14px;letter-spacing:0.06em}.top p{margin:2px 0 0;font-size:9px;letter-spacing:0.18em;opacity:0.6}
+      .body{padding:16px;display:flex;gap:14px}
+      .photo{width:96px;height:112px;border-radius:12px;object-fit:cover;border:1px solid #e2e8f0;background:#f8fafc}
+      .nophoto{width:96px;height:112px;border-radius:12px;background:#e2e8f0;display:grid;place-items:center;font-size:28px;font-weight:800;color:#94a3b8}
+      .name{font-size:17px;font-weight:800;color:#0f172a} .sub{font-size:11px;color:#64748b;margin-top:2px}
+      .rows{margin-top:10px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:11px}
+      .rows .k{color:#64748b} .rows .v{font-weight:700;color:#0f172a}
+      .exp{margin:0 16px 4px;padding:8px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;font-size:11px;color:#991b1b;text-align:center}
+      .foot{padding:10px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b;display:flex;justify-content:space-between}
+      .badge{font-size:10px;font-weight:800;padding:3px 10px;border-radius:999px;color:${statusColor};border:1px solid currentColor}
+      .sig{margin:14px auto 0;width:340px;display:flex;justify-content:space-between;font-size:10px;color:#475569}
+      .sig div{border-top:1px solid #0f172a;padding-top:4px;width:45%;text-align:center}
+      @media print{ body{background:#fff;padding:0} .no-print{display:none} }
+    </style></head><body>
+      <div class="card">
+        <div class="top"><div class="logo">A</div><div style="flex:1"><h1>AYAAN INSTITUTE</h1><p>GROUP OF COMPETITIVE INSTITUTIONS</p></div><span class="badge">${status}</span></div>
+        <div class="body">
+          ${aa.photo ? `<img src="${aa.photo}" class="photo" alt="photo"/>` : `<div class="nophoto">${String(uu.name || "?").trim().charAt(0).toUpperCase()}</div>`}
+          <div style="flex:1;min-width:0">
+            <div class="name">${String(uu.name || "").replace(/</g, "&lt;")}</div>
+            <div class="sub">${String(aa.course || uu.course || "").replace(/</g, "&lt;")}${aa.branch ? " • " + String(aa.branch).replace(/</g, "&lt;") : ""}</div>
+            <div class="rows">
+              <span class="k">Student ID</span><span class="v">${uu.studentId || "—"}</span>
+              <span class="k">Digital ID</span><span class="v">${uu.digitalIdNo || "—"}</span>
+              <span class="k">Phone</span><span class="v">${uu.phone || "—"}</span>
+              <span class="k">Batch</span><span class="v">${String(aa.batchName || "—").replace(/</g, "&lt;")}</span>
+            </div>
+          </div>
+        </div>
+        <div class="exp">VALID TILL <b>${fmt(uu.digitalIdValidUntil)}</b> (from ${fmt(uu.digitalIdValidFrom)})</div>
+        <div class="foot"><span>${uu.email || ""}</span><span>${uu.digitalIdNo || ""}</span></div>
+      </div>
+      <div class="sig"><div>Student Signature</div><div>Authorized Signatory</div></div>
+      <div class="no-print" style="text-align:center;margin-top:16px"><button onclick="window.print()" style="padding:10px 22px;border-radius:999px;background:#0f172a;color:#fff;border:none;font-weight:700;cursor:pointer">Print / Save as PDF</button></div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
+    </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) return alert("Popup blocked — allow popups to print");
+    w.document.open(); w.document.write(html); w.document.close();
+  };
+
   if (loading) return <div className="min-h-[50vh] grid place-items-center text-slate-500">Loading…</div>;
   if (!data) return null;
 
@@ -159,13 +213,42 @@ export default function AccountPage() {
               </div>
               <span className="ml-auto px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">Active</span>
             </div>
-            {u.digitalIdNo && (
-              <div className="mt-4 p-4 rounded-2xl bg-navy-900 text-white flex items-center gap-4">
-                <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/20 grid place-items-center font-bold">ID</div>
-                <div className="flex-1">
-                  <div className="text-xs tracking-widest text-white/60">DIGITAL STUDENT ID • {u.digitalIdStatus || "active"}</div>
-                  <div className="font-display font-bold">{u.digitalIdNo}</div>
-                  <div className="text-xs text-white/60">Valid {u.digitalIdValidFrom ? new Date(u.digitalIdValidFrom).toLocaleDateString("en-IN") : "—"} → {u.digitalIdValidUntil ? new Date(u.digitalIdValidUntil).toLocaleDateString("en-IN") : "—"}</div>
+            {(u.digitalIdNo || u.studentId) && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold tracking-widest text-slate-500">STUDENT ID CARD</div>
+                  <button onClick={() => printIdCard()} className="text-xs px-3 py-1.5 rounded-full bg-navy-900 text-white hover:bg-navy-800">🖨️ Print / Save PDF</button>
+                </div>
+                <div className="mt-2 rounded-2xl overflow-hidden border border-slate-200 bg-white">
+                  <div className="bg-navy-900 text-white px-4 py-3 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-white text-navy-900 grid place-items-center font-display font-bold">A</div>
+                    <div className="flex-1">
+                      <div className="font-display font-bold text-sm tracking-wide">AYAAN INSTITUTE</div>
+                      <div className="text-[10px] tracking-[0.18em] text-white/60">GROUP OF COMPETITIVE INSTITUTIONS • ESTD 2016</div>
+                    </div>
+                    <span className={`text-[10px] px-2 py-1 rounded-full border ${u.digitalIdStatus === "expired" || u.digitalIdStatus === "revoked" ? "bg-red-500/20 border-red-300/40 text-red-100" : "bg-emerald-500/20 border-emerald-300/40 text-emerald-100"}`}>{(u.digitalIdStatus || "active").toUpperCase()}</span>
+                  </div>
+                  <div className="p-4 flex gap-4">
+                    {a?.photo ? (
+                      <img src={a.photo} alt="Student photo" className="w-24 h-28 rounded-xl object-cover border border-slate-200 shrink-0" />
+                    ) : (
+                      <div className="w-24 h-28 rounded-xl bg-slate-100 border border-slate-200 grid place-items-center text-2xl font-bold text-slate-400 shrink-0">{u.name[0]}</div>
+                    )}
+                    <div className="flex-1 min-w-0 text-sm">
+                      <div className="font-display font-bold text-lg text-navy-900 truncate">{u.name}</div>
+                      <div className="text-xs text-slate-500">{a?.course || u.course}{a?.branch ? ` • ${a.branch}` : ""}{a?.batchName ? ` • ${a.batchName}` : ""}</div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                        <span className="text-slate-500">Student ID</span><b className="text-emerald-700">{u.studentId || "—"}</b>
+                        <span className="text-slate-500">Digital ID</span><b>{u.digitalIdNo || "—"}</b>
+                        <span className="text-slate-500">Phone</span><span>{u.phone}</span>
+                        <span className="text-slate-500">Valid Till</span><b className="text-red-700">{u.digitalIdValidUntil ? new Date(u.digitalIdValidUntil).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</b>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex justify-between">
+                    <span>Valid {u.digitalIdValidFrom ? new Date(u.digitalIdValidFrom).toLocaleDateString("en-IN") : "—"} → {u.digitalIdValidUntil ? new Date(u.digitalIdValidUntil).toLocaleDateString("en-IN") : "—"}</span>
+                    <span>{u.email}</span>
+                  </div>
                 </div>
               </div>
             )}

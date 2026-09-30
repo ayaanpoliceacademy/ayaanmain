@@ -15,18 +15,28 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const ids = admissions.map((a) => a.id);
+  const [allInstallments, allAcked] = await Promise.all([
+    ids.length > 0 ? prisma.installment.findMany({ where: { admissionId: { in: ids } }, orderBy: [{ admissionId: "asc" }, { seq: "asc" }] }) : Promise.resolve([]),
+    ids.length > 0 ? prisma.feePayment.findMany({ where: { admissionId: { in: ids }, status: "acknowledged" } }) : Promise.resolve([]),
+  ]);
+  const instByAdm = new Map<string, typeof allInstallments>();
+  for (const i of allInstallments) {
+    const arr = instByAdm.get(i.admissionId) || [];
+    arr.push(i);
+    instByAdm.set(i.admissionId, arr);
+  }
+  const paidByAdm = new Map<string, number>();
+  for (const p of allAcked) paidByAdm.set(p.admissionId, (paidByAdm.get(p.admissionId) || 0) + p.amount);
+
   const result = [];
   for (const a of admissions) {
-    const installments = await prisma.installment.findMany({
-      where: { admissionId: a.id },
-      orderBy: { seq: "asc" },
-    });
+    const installments = instByAdm.get(a.id) || [];
     const withDue = installments.map((i) => {
       const outstanding = Math.max(0, i.originalAmount - (i.paidAmount || 0));
       return { ...i, outstanding, dueStatus: dueStatus(outstanding, i.dueDate) };
     });
-    const acked = await prisma.feePayment.findMany({ where: { admissionId: a.id, status: "acknowledged" } });
-    const totalPaid = acked.reduce((s, p) => s + p.amount, 0);
+    const totalPaid = paidByAdm.get(a.id) || 0;
     const finalFee = a.finalFee ?? a.totalFee ?? 0;
     result.push({
       admission: {

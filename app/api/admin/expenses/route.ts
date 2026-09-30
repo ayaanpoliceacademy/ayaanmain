@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
-  const expenses = await prisma.expense.findMany({ orderBy: { createdAt: "desc" } });
+  const expenses = await prisma.expense.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(expenses, { headers: { "Cache-Control": "no-store" } });
 }
 

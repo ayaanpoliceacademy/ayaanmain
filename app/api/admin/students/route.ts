@@ -11,7 +11,7 @@ function stripSensitive(user: any) {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions", "finance"]);
   if (auth.error) return auth.error;
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" } });
+  const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(users.map(stripSensitive), { headers: { "Cache-Control": "no-store" } });
 }
 

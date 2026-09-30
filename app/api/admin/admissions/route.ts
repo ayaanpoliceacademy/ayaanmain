@@ -15,7 +15,7 @@ function generateInitialPassword(): string {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions"]);
   if (auth.error) return auth.error;
-  const admissions = await prisma.admission.findMany({ orderBy: { createdAt: "desc" } });
+  const admissions = await prisma.admission.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(admissions, { headers: { "Cache-Control": "no-store" } });
 }
 

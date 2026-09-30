@@ -7,12 +7,15 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
-  const orders = await prisma.storeOrder.findMany({
-    where: status && status !== "all" ? { status } : {},
-    include: { items: true, events: { orderBy: { createdAt: "asc" } } },
-    orderBy: { createdAt: "desc" },
-  });
-  const newCount = await prisma.storeOrder.count({ where: { status: { in: ["placed", "payment_confirmed"] } } });
+  const [orders, newCount] = await Promise.all([
+    prisma.storeOrder.findMany({
+      where: status && status !== "all" ? { status } : {},
+      include: { items: true, events: { orderBy: { createdAt: "asc" } } },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    }),
+    prisma.storeOrder.count({ where: { status: { in: ["placed", "payment_confirmed"] } } }),
+  ]);
   return NextResponse.json({ orders, newCount }, { headers: { "Cache-Control": "no-store" } });
 }
 

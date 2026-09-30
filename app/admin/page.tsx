@@ -1035,7 +1035,7 @@ function PaymentsTab() {
                 <td className="text-right text-emerald-700">₹{p.paidAmount.toLocaleString("en-IN")}</td>
                 <td className={`text-right font-bold ${p.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>₹{p.balance.toLocaleString("en-IN")}</td>
                 <td className="text-center text-xs">{p.dueDate ? new Date(p.dueDate).toLocaleDateString("en-IN") : "—"}</td>
-                <td className="text-center"><span className={`px-2 py-1 rounded-full text-xs border ${p.balance === 0 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : p.balance < p.amount ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-red-50 border-red-200 text-red-700"}`}>{p.balance === 0 ? "paid" : p.status}</span></td>
+                <td className="text-center"><span className={`px-2 py-1 rounded-full text-xs border ${p.balance === 0 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : p.balance < p.amount ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-red-50 border-red-200 text-red-700"}`}>{p.balance === 0 ? "paid" : String(p.status || "").replace(/_/g, " ")}</span>{p.src === "fee" && <div className="text-[10px] text-sky-700 mt-0.5">admission fee{p.receiptNo ? ` • ${p.receiptNo}` : ""}</div>}</td>
               </tr>
             ))}
           </tbody>
@@ -1227,10 +1227,33 @@ function LeadsTab() {
   const [list, setList] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "new" | "contacted" | "converted">("all");
   const [q, setQ] = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [courseOptions, setCourseOptions] = useState<string[]>([]);
+  const [employeeOptions, setEmployeeOptions] = useState<string[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ notes: "", freeText: "", employeeName: "", dueDate: "", status: "new" });
-  const load = () => fetch("/api/admin/leads", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const load = () => fetch("/api/admin/leads", { credentials: "same-origin" }).then((r) => r.json()).then((d) => {
+    if (Array.isArray(d)) {
+      setList(d);
+      const emps = Array.from(new Set(d.map((x: any) => String(x.employeeName || "").trim()).filter(Boolean))) as string[];
+      setEmployeeOptions(emps.sort());
+    }
+  }).catch(() => {});
+  useEffect(() => {
+    load();
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d) && d.length > 0) {
+        const opts: string[] = d.map((c: any) => {
+          const title: string = String(c.title || "");
+          const m = title.match(/\(([^)]+)\)/);
+          if (m) return m[1].trim();
+          return String(c.slug || title).trim();
+        }).filter(Boolean);
+        setCourseOptions(Array.from(new Set(opts)));
+      }
+    }).catch(() => {});
+  }, []);
   const update = async (id: string, patch: any) => {
     await fetch("/api/admin/leads", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     load();
@@ -1366,10 +1389,20 @@ function LeadsTab() {
     return <span className={isOverdue ? "text-red-600 font-medium" : ""}>{d.toLocaleDateString("en-IN")}{isOverdue ? " • Overdue" : ""}</span>;
   };
 
+  const isOverdue = (x: any) => {
+    if (!x.dueDate) return false;
+    const d = new Date(x.dueDate);
+    return d.getTime() < Date.now() && d.toDateString() !== new Date().toDateString();
+  };
   const filtered = list.filter((x) => {
     const fOk = filter === "all" || x.status === filter;
-    const qOk = !q || `${x.name} ${x.phone} ${x.employeeName || ""} ${x.notes || ""}`.toLowerCase().includes(q.toLowerCase());
-    return fOk && qOk;
+    if (!fOk) return false;
+    if (courseFilter !== "all" && String(x.course || "") !== courseFilter) return false;
+    if (overdueOnly && !isOverdue(x)) return false;
+    if (!q) return true;
+    const qq = q.toLowerCase();
+    const hay = [x.name, x.phone, x.employeeName, x.notes, x.freeText, x.course, x.medium, x.mode].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(qq);
   });
 
   return (
@@ -1380,7 +1413,10 @@ function LeadsTab() {
           <div className="text-xs text-slate-500 mt-1">From Home → “Find your batch” → Join (name + mobile). Add notes, assign employee, set due date.</div>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, phone, employee…" className="px-3 py-2 rounded-full border border-slate-200 text-sm w-44" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, phone, course, notes…" className="px-3 py-2 rounded-full border border-slate-200 text-sm w-56" />
+          <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="px-3 py-2 rounded-full border border-slate-200 text-xs bg-white"><option value="all">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          <button onClick={() => setOverdueOnly(!overdueOnly)} className={`px-3 py-2 rounded-full text-xs border ${overdueOnly ? "bg-red-600 text-white border-red-600" : "bg-white border-slate-200"}`}>Overdue{overdueOnly ? " ✓" : ""}</button>
+          {(q || courseFilter !== "all" || overdueOnly) && <button onClick={() => { setQ(""); setCourseFilter("all"); setOverdueOnly(false); }} className="text-xs text-slate-500 hover:underline">Clear</button>}
           <label className="px-3 py-2 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50 cursor-pointer">Import CSV/Excel<input type="file" accept=".csv,.xls,.xlsx" onChange={onImport} className="hidden" /></label>
           <button onClick={exportCsv} className="px-3 py-2 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50">Export CSV</button>
           <button onClick={exportXlsx} className="px-3 py-2 rounded-full bg-navy-900 text-white text-xs">Export Excel</button>
@@ -1391,7 +1427,7 @@ function LeadsTab() {
         {(["all", "new", "contacted", "converted"] as const).map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 rounded-full text-xs border capitalize ${filter === f ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>{f} ({f === "all" ? list.length : list.filter((x) => x.status === f).length})</button>
         ))}
-        <span className="ml-2 text-xs text-slate-500 self-center">Showing {filtered.length}</span>
+        <span className="ml-2 text-xs text-slate-500 self-center">Showing {filtered.length}/{list.length}</span>
       </div>
 
       {/* Table */}

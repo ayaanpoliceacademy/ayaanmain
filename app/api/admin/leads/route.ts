@@ -7,7 +7,7 @@ import { audit } from "@/lib/identifiers";
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions"]);
   if (auth.error) return auth.error;
-  const leads = await prisma.lead.findMany({ orderBy: { createdAt: "desc" } });
+  const leads = await prisma.lead.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(leads, { headers: { "Cache-Control": "no-store" } });
 }
 
