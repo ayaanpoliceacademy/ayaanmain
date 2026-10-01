@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { scopeFromAuth, resolveBranchFilter } from "@/lib/branch-scope";
 
 // Receipts ledger: one row per collected payment, with the student, course, date paid,
 // amount, method and any attached payment-proof screenshot.
@@ -13,11 +14,17 @@ export async function GET(req: NextRequest) {
   const studentId = searchParams.get("studentId") || "";
   const method = searchParams.get("method") || "";
   const course = searchParams.get("course") || "";
-  const branch = searchParams.get("branch") || "";
+  const requestedBranch = searchParams.get("branch") || "";
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
   const includeLegacy = searchParams.get("legacy") === "1";
   const q = (searchParams.get("q") || "").toLowerCase();
+
+  // Campus scoping
+  const scope = scopeFromAuth(auth);
+  const branchFilter = resolveBranchFilter(scope, requestedBranch);
+  if (branchFilter.error) return NextResponse.json({ error: branchFilter.error }, { status: 403 });
+  const branch = branchFilter.branch || "";
 
   const where: any = {};
   if (admissionId) where.admissionId = admissionId;
@@ -106,7 +113,7 @@ export async function GET(req: NextRequest) {
         studentCode: "",
         applicationId: "",
         course: p.course,
-        branch: "",
+        branch: p.branch || "",
         medium: p.medium,
         mode: p.mode,
         batchName: "",
@@ -118,7 +125,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const filtered = rows.filter((r) => {
+  const scoped = scope.branches === null ? rows : rows.filter((r: any) => scope.branches!.some((b) => String(b).trim().toLowerCase() === String(r.branch || "").trim().toLowerCase()));
+
+  const filtered = scoped.filter((r) => {
     if (method && String(r.method).toLowerCase() !== method.toLowerCase()) return false;
     if (course && String(r.course).toLowerCase() !== course.toLowerCase()) return false;
     if (branch && String(r.branch).toLowerCase() !== branch.toLowerCase()) return false;

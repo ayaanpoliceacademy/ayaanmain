@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { audit, dueStatus } from "@/lib/identifiers";
+import { scopeFromAuth, canActOn, forbidBranch, resolveBranchFilter } from "@/lib/branch-scope";
 
 function withDue(i: any) {
   const outstanding = Math.max(0, i.originalAmount - (i.paidAmount || 0));
@@ -12,8 +13,13 @@ export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
   const { searchParams } = new URL(req.url);
-  const admissionId = searchParams.get("admissionId") || "";
-  const where: any = admissionId ? { admissionId } : {};
+const admissionId = searchParams.get("admissionId") || "";
+  const scope = scopeFromAuth(auth);
+  const requested = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
+  const where: any = {};
+  if (admissionId) where.admissionId = admissionId;
+  if (scope.branches !== null) where.admission = { branch: { in: scope.branches } };
   const list = await prisma.installment.findMany({ where, orderBy: [{ admissionId: "asc" }, { seq: "asc" }] });
   return NextResponse.json(list.map(withDue), { headers: { "Cache-Control": "no-store" } });
 }
@@ -25,8 +31,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { admissionId, label, amount, dueDate, notes } = body;
   if (!admissionId || !amount || !dueDate) return NextResponse.json({ error: "admissionId, amount, dueDate required" }, { status: 400 });
-  const adm = await prisma.admission.findUnique({ where: { id: String(admissionId) } });
+const adm = await prisma.admission.findUnique({ where: { id: String(admissionId) } });
   if (!adm || adm.status !== "approved") return NextResponse.json({ error: "Admission must be approved" }, { status: 400 });
+  if (!canActOn(scopeFromAuth(auth), adm.branch)) return forbidBranch(adm.branch);
   const maxSeq = await prisma.installment.aggregate({ where: { admissionId: adm.id }, _max: { seq: true } });
   const seq = (maxSeq._max.seq || 0) + 1;
   const item = await prisma.installment.create({
@@ -51,8 +58,12 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   const { id, label, amount, notes, dueDate, reason } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const inst = await prisma.installment.findUnique({ where: { id } });
+const inst = await prisma.installment.findUnique({ where: { id } });
   if (!inst) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  {
+    const own = await prisma.admission.findUnique({ where: { id: inst.admissionId }, select: { branch: true } });
+    if (!canActOn(scopeFromAuth(auth), own?.branch)) return forbidBranch(own?.branch);
+  }
 
   const data: any = {};
   if (label !== undefined) data.label = String(label).trim().slice(0, 80);
@@ -88,7 +99,7 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const allocs = await prisma.paymentAllocation.count({ where: { installmentId: id } });
+const allocs = await prisma.paymentAllocation.count({ where: { installmentId: id } });
   if (allocs > 0) return NextResponse.json({ error: "Cannot delete — allocations exist" }, { status: 400 });
   const inst = await prisma.installment.findUnique({ where: { id } });
   if (!inst) return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { dueStatus } from "@/lib/identifiers";
+import { scopeFromAuth, resolveBranchFilter } from "@/lib/branch-scope";
 
 // Due Payments dashboard.
 //
@@ -16,16 +17,22 @@ export async function GET(req: NextRequest) {
   const due = searchParams.get("due") || "all"; // all, today, soon, overdue, notdue
   const status = searchParams.get("status") || "all"; // all, pending, partial, paid
   const scope = searchParams.get("scope") || "outstanding"; // outstanding, all
-  const branch = searchParams.get("branch") || "";
+  const requestedBranch = searchParams.get("branch") || "";
   const course = searchParams.get("course") || "";
   const batch = searchParams.get("batch") || "";
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
   const q = (searchParams.get("q") || "").toLowerCase();
 
+  // Campus scoping: clamp to the admin's assigned campuses before any query runs
+  const campus = scopeFromAuth(auth);
+  const branchFilter = resolveBranchFilter(campus, requestedBranch);
+  if (branchFilter.error) return NextResponse.json({ error: branchFilter.error }, { status: 403 });
+  const branch = branchFilter.branch || "";
+
   const [admissions, installments, acked, legacy] = await Promise.all([
     prisma.admission.findMany({
-      where: { status: "approved" },
+      where: { status: "approved", ...(campus.branches === null ? {} : { branch: { in: campus.branches } }) },
       select: {
         id: true, applicationId: true, applicantStudentId: true, studentId: true,
         name: true, email: true, phone: true, course: true, branch: true,
@@ -38,7 +45,8 @@ export async function GET(req: NextRequest) {
     prisma.installment.findMany({ orderBy: [{ dueDate: "asc" }], take: 20000 }),
     prisma.feePayment.findMany({ where: { status: "acknowledged" }, select: { admissionId: true, amount: true }, take: 20000 }),
     prisma.payment.findMany({
-      select: { id: true, studentId: true, name: true, phone: true, email: true, course: true, medium: true, mode: true, amount: true, paidAmount: true, dueDate: true, status: true },
+      select: { id: true, studentId: true, name: true, phone: true, email: true, course: true, branch: true, medium: true, mode: true, amount: true, paidAmount: true, dueDate: true, status: true },
+      where: campus.branches === null ? {} : { branch: { in: campus.branches } },
       take: 5000,
     }),
   ]);

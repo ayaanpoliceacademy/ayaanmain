@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch } from "@/lib/branch-scope";
 import { addMonths, audit } from "@/lib/identifiers";
 
 function parseMonths(s: any, fallback = 3): number {
@@ -19,7 +20,14 @@ function parseMonths(s: any, fallback = 3): number {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin"]);
   if (auth.error) return auth.error;
-  const batches = await prisma.batch.findMany({ orderBy: { startDate: "asc" } });
+  const scope = scopeFromAuth(auth);
+  const { searchParams } = new URL(req.url);
+  const requested = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
+  const where: any = {};
+  if (scope.branches !== null) where.branch = { in: scope.branches };
+  else if (requested.branch) where.branch = requested.branch;
+  const batches = await prisma.batch.findMany({ where, orderBy: { startDate: "asc" } });
   return NextResponse.json(
     batches.map((b) => ({ ...b, availableSeats: Math.max(0, b.seats - b.filled) })),
     { headers: { "Cache-Control": "no-store" } }

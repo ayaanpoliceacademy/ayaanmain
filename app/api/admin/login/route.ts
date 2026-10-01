@@ -88,6 +88,9 @@ export async function POST(req: NextRequest) {
     email: admin.email,
     mustChangePassword: (admin as any).mustChangePassword || false,
     permissions: allowedTabs || null,
+    // Campus scope — empty array means this admin sees every campus
+    campuses: Array.isArray((admin as any).branchIds) && admin.role !== "super_admin" ? (admin as any).branchIds : [],
+    allCampuses: admin.role === "super_admin" || !(Array.isArray((admin as any).branchIds) && (admin as any).branchIds.length > 0),
   });
   res.cookies.set("ayaan_session", token, {
     httpOnly: true,
@@ -141,6 +144,8 @@ export async function GET(req: NextRequest) {
       mustChangePassword: admin.mustChangePassword || false,
       permissions: allowedTabs || null,
       isActive: admin.isActive,
+      campuses: Array.isArray(admin.branchIds) && admin.role !== "super_admin" ? admin.branchIds : [],
+      allCampuses: admin.role === "super_admin" || !(Array.isArray(admin.branchIds) && admin.branchIds.length > 0),
     });
   }
   return NextResponse.json({ authenticated: true, role: session.role, user: session.username });

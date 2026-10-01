@@ -3,6 +3,7 @@ import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { newReceiptNo, audit } from "@/lib/identifiers";
 import { sendEmail, tplPaymentAck } from "@/lib/email";
+import { scopeFromAuth, canActOn, forbidBranch, resolveBranchFilter } from "@/lib/branch-scope";
 
 async function refreshInstallment(tx: any, installmentId: string) {
   const allocs = await tx.paymentAllocation.findMany({ where: { installmentId } });
@@ -22,9 +23,14 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status") || "";
   const admissionId = searchParams.get("admissionId") || "";
   const q = (searchParams.get("q") || "").toLowerCase();
-  const where: any = {};
+const where: any = {};
   if (status && status !== "all") where.status = status;
   if (admissionId) where.admissionId = admissionId;
+  // Campus scoping
+  const scope = scopeFromAuth(auth);
+  const requestedBranch = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requestedBranch.error) return NextResponse.json({ error: requestedBranch.error }, { status: 403 });
+  if (scope.branches !== null) where.admission = { branch: { in: scope.branches } };
   const list = await prisma.feePayment.findMany({
     where,
     include: { allocations: { include: { installment: true } }, receipt: true },
@@ -54,6 +60,11 @@ export async function POST(req: NextRequest) {
 
   const payment = await prisma.feePayment.findUnique({ where: { id }, include: { allocations: true } });
   if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
+
+  // Campus guard: only act on payments for campuses this admin owns
+  const scope = scopeFromAuth(auth);
+  const adm = await prisma.admission.findUnique({ where: { id: payment.admissionId }, select: { branch: true } });
+  if (!canActOn(scope, adm?.branch)) return forbidBranch(adm?.branch);
 
   // ---- Acknowledge + allocate ----
   if (action === "acknowledge") {

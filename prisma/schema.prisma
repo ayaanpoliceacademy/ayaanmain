@@ -20,6 +20,7 @@ model Admin {
   name               String
   mustChangePassword Boolean  @default(true)
   permissions        String[] @default([]) // explicit tab ids; if empty => role defaults
+  branchIds          String[] @default([]) // campuses this admin may see/act on; empty = ALL campuses
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -129,11 +130,13 @@ model Payment {
   transactionId   String?
   screenshot      String?
   status          String
+  branch          String   @default("") // campus this fee belongs to
   createdAt DateTime @default(now())
   approvedAt DateTime?
 
   @@index([createdAt])
   @@index([status])
+  @@index([branch])
   @@map("payments")
 }
 
@@ -151,9 +154,11 @@ model Expense {
   notes         String?
   requestedBy   String?  // username who created
   approvedBy    String?  // super_admin who approved
+  branch        String   @default("") // campus this expense belongs to ("" = unassigned/central)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([branch])
   @@map("expenses")
 }
 
@@ -348,6 +353,7 @@ model Lead {
   course       String?
   medium       String?
   mode         String?
+  branch       String?   // campus the lead belongs to
   batchId      String?
   status       String    @default("new")
   notes        String?   // admin notes
@@ -361,6 +367,7 @@ model Lead {
 
   @@index([status, createdAt])
   @@index([phone])
+  @@index([branch, createdAt])
   @@map("leads")
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch } from "@/lib/branch-scope";
 import { supabaseAdmin } from "@/lib/supabase";
 
 function stripSensitive(user: any) {
@@ -11,7 +12,14 @@ function stripSensitive(user: any) {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions", "finance"]);
   if (auth.error) return auth.error;
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
+  const scope = scopeFromAuth(auth);
+  const { searchParams } = new URL(req.url);
+  const requested = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
+  const where: any = {};
+  if (scope.branches !== null) where.branch = { in: scope.branches };
+  else if (requested.branch) where.branch = requested.branch;
+  const users = await prisma.user.findMany({ where, orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(users.map(stripSensitive), { headers: { "Cache-Control": "no-store" } });
 }
 

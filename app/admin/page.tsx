@@ -58,6 +58,23 @@ export default function AdminPage() {
   const [changing, setChanging] = useState(false);
   const [changeErr, setChangeErr] = useState("");
   const [changeOk, setChangeOk] = useState("");
+  // Campus scope: which campuses this admin may filter to
+  const [allCampuses, setAllCampuses] = useState(true);
+  const [myCampuses, setMyCampuses] = useState<string[]>([]);
+  const [campusOptions, setCampusOptions] = useState<string[]>([]);
+  const [campus, setCampus] = useState("");
+
+  useEffect(() => {
+    fetch("/api/branches").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d)) setCampusOptions(d.map((b: any) => String(b.name || "")).filter(Boolean));
+    }).catch(() => {});
+  }, []);
+  // A restricted admin can only ever filter within their own campuses
+  useEffect(() => {
+    if (allCampuses) { setCampusOptions((prev) => prev); return; }
+    if (campus && !myCampuses.some((c) => c.toLowerCase() === campus.toLowerCase())) setCampus("");
+  }, [allCampuses, myCampuses, campus]);
+  const selectableCampuses = allCampuses ? campusOptions : myCampuses;
 
   const allowedTabs = permissions && permissions.length > 0 ? (permissions as Tab[]) : (roleTabs[role] || roleTabs.super_admin);
 
@@ -72,7 +89,9 @@ export default function AdminPage() {
         if (d.user) setAuthUser(d.user);
         if (d.permissions) setPermissions(d.permissions);
         else if (d.role) setPermissions(null);
-        if (d.mustChangePassword) setMustChange(true);
+if (d.mustChangePassword) setMustChange(true);
+        if (Array.isArray(d.campuses)) setMyCampuses(d.campuses);
+        setAllCampuses(d.allCampuses !== false);
         if (d.authenticated && d.role) {
           const eff = d.permissions && d.permissions.length > 0 ? (d.permissions as Tab[]) : (roleTabs[d.role as Role] || roleTabs.super_admin);
           if (!eff.includes(tab)) setTab(eff[0] || "dashboard");
@@ -87,7 +106,7 @@ export default function AdminPage() {
     if (!auth) return;
     if (role !== "super_admin" && role !== "finance") return;
     const poll = () => {
-      fetch("/api/admin/orders", { credentials: "same-origin",  cache: "no-store" })
+      fetch(`/api/admin/orders${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin",  cache: "no-store" })
         .then((r) => r.json())
         .then((d) => setNewOrders(Number(d.newCount || 0)))
         .catch(() => {});
@@ -283,21 +302,37 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {tab === "dashboard" && <DashboardTab onOrders={() => setTab("orders")} />}
+        {/* Global campus filter — applies to every tab */}
+        <div className="card px-4 py-3 mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold text-slate-600">Campus</span>
+          <select value={campus} onChange={(e) => setCampus(e.target.value)} disabled={!allCampuses && selectableCampuses.length <= 1} className="px-3 py-2 rounded-lg border bg-white text-sm disabled:opacity-60 disabled:cursor-not-allowed">
+            {allCampuses
+              ? <option value="">All campuses</option>
+              : myCampuses.length > 1 && <option value="">All my campuses</option>}
+            {selectableCampuses.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {campus && <button onClick={() => setCampus("")} className="text-xs text-slate-500 hover:underline">Clear</button>}
+          <span className="text-xs text-slate-500 ml-auto">
+            {allCampuses
+              ? "Viewing all campuses — pick one to drill into campus-wise stats"
+              : `You have access to ${myCampuses.length} campus${myCampuses.length === 1 ? "" : "es"}: ${myCampuses.join(", ")}`}
+          </span>
+        </div>
+        {tab === "dashboard" && <><CampusStats branch={campus} onPick={setCampus} /><DashboardTab onOrders={() => setTab("orders")} campus={campus} /></>}
         {tab === "store" && <StoreStockTab />}
         {tab === "alumni" && <AlumniTab />}
-        {tab === "leads" && <LeadsTab />}
-        {tab === "payments" && <PaymentsTab />}
-        {tab === "students" && <StudentsTab />}
-        {tab === "finance" && <FinanceTab />}
-        {tab === "admissions" && <AdmissionsTab />}
+        {tab === "leads" && <LeadsTab campus={campus} />}
+        {tab === "payments" && <PaymentsTab campus={campus} />}
+        {tab === "students" && <StudentsTab campus={campus} />}
+        {tab === "finance" && <FinanceTab campus={campus} />}
+        {tab === "admissions" && <AdmissionsTab campus={campus} />}
         {tab === "rag" && <RagTab />}
-        {tab === "batches" && <BatchesTab />}
+        {tab === "batches" && <BatchesTab campus={campus} />}
         {tab === "banner" && <BannerTab />}
         {tab === "fees" && <FeeConfigTab />}
-        {tab === "expenses" && <ExpenseTrackerTab />}
-        {tab === "orders" && <OrdersTab />}
-        {tab === "dues" && <DuesTab />}
+        {tab === "expenses" && <ExpenseTrackerTab campus={campus} />}
+        {tab === "orders" && <OrdersTab campus={campus} />}
+        {tab === "dues" && <DuesTab campus={campus} />}
         {tab === "masters" && <MastersTab />}
         {tab === "admins" && <AdminsTab />}
         {tab === "carousel" && <CarouselTab />}
@@ -384,7 +419,7 @@ function RagTab() {
 
 const EMPTY_BATCH = { id: "", name: "", course: "SI", medium: "Telugu", mode: "Residential", branch: "Warangal", slot: "", days: "", startDate: "2026-10-01", endDate: "", seats: 40, filled: 0, duration: "3 Months", durationMonths: 3, status: "open", isActive: true, note: "" };
 
-function BatchesTab() {
+function BatchesTab({ campus = "" }: { campus?: string }) {
   const [list, setList] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ ...EMPTY_BATCH });
@@ -393,7 +428,7 @@ function BatchesTab() {
   const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
   const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
 
-  const load = () => fetch("/api/admin/batches", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch(`/api/admin/batches${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => {
     load();
     fetch("/api/courses").then((r) => r.json()).then((d) => {
@@ -524,7 +559,7 @@ function BatchesTab() {
   );
 }
 
-function AdmissionsTab() {
+function AdmissionsTab({ campus = "" }: { campus?: string }) {
   const [list, setList] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "clarification_required" | "discount_pending" | "approved" | "rejected">("pending");
   const [q, setQ] = useState("");
@@ -539,7 +574,7 @@ function AdmissionsTab() {
   const [role, setRole] = useState("super_admin");
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [courseOptions, setCourseOptions] = useState<string[]>([]);
-  const load = () => fetch("/api/admin/admissions", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch(`/api/admin/admissions${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => {
     load();
     fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
@@ -793,18 +828,98 @@ function AdmissionsTab() {
   );
 }
 
-function DashboardTab({ onOrders }: { onOrders?: () => void }) {
+// Campus-wise AR/AP — one row per campus (super_admin sees every campus)
+function CampusStats({ branch, onPick }: { branch: string; onPick: (b: string) => void }) {
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    setData(null);
+    const p = branch ? `?branch=${encodeURIComponent(branch)}` : "";
+    fetch(`/api/admin/branch-stats${p}`, { credentials: "same-origin", cache: "no-store" })
+      .then((r) => r.json()).then((d) => setData(d)).catch(() => setData(null));
+  }, [branch]);
+  if (!data || !Array.isArray(data.rows)) return null;
+  const t = data.totals || {};
+  const money = (n: any) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-semibold text-navy-900">Campus-wise AR / AP</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {data.scope?.label} — AR is the same receivable basis as the Dues tab. Click a campus to drill in.
+          </p>
+        </div>
+        {branch && <button onClick={() => onPick("")} className="text-xs text-slate-500 hover:underline">Clear campus filter</button>}
+      </div>
+
+      <div className="mt-3 grid sm:grid-cols-4 gap-3">
+        <div className="rounded-xl border p-3"><div className="text-[11px] text-slate-500">Receivable (AR)</div><div className="text-lg font-bold text-navy-900">{money(t.receivable)}</div><div className="text-[11px] text-slate-400">{t.admissions} admissions</div></div>
+        <div className="rounded-xl border p-3"><div className="text-[11px] text-slate-500">Collected</div><div className="text-lg font-bold text-emerald-700">{money(t.collected)}</div></div>
+        <div className="rounded-xl border p-3"><div className="text-[11px] text-slate-500">Outstanding</div><div className="text-lg font-bold text-red-700">{money(t.outstanding)}</div></div>
+        <div className="rounded-xl border p-3"><div className="text-[11px] text-slate-500">Payable (AP)</div><div className="text-lg font-bold text-amber-700">{money(t.payable)}</div><div className="text-[11px] text-slate-400">{money(t.pendingApproval)} awaiting approval</div></div>
+      </div>
+
+      <div className="mt-4 overflow-auto border rounded-2xl max-h-[50vh]">
+        <table className="w-full text-xs min-w-[1000px]">
+          <thead className="bg-slate-50 sticky top-0 z-10"><tr className="text-left text-slate-500">
+            <th className="px-3 py-2">Campus</th><th className="px-3 py-2 text-right">Admissions</th><th className="px-3 py-2 text-right">Receivable</th>
+            <th className="px-3 py-2 text-right">Collected</th><th className="px-3 py-2 text-right">Outstanding</th>
+            <th className="px-3 py-2 text-right">Payable</th><th className="px-3 py-2 text-right">Pending Appr.</th>
+            <th className="px-3 py-2 text-right">Net</th><th className="px-3 py-2 text-right">Batches</th><th className="px-3 py-2 text-right">Fill</th>
+          </tr></thead>
+          <tbody className="divide-y">
+            {data.rows.map((r: any) => {
+              const collectionRate = r.receivable > 0 ? Math.round((r.collected / r.receivable) * 100) : 0;
+              return (
+                <tr key={r.branch} className={`hover:bg-slate-50 cursor-pointer ${branch && branch.toLowerCase() === r.branch.toLowerCase() ? "bg-sky-50" : ""}`} onClick={() => onPick(branch && branch.toLowerCase() === r.branch.toLowerCase() ? "" : r.branch)}>
+                  <td className="px-3 py-2 font-semibold">{r.branch}</td>
+                  <td className="px-3 py-2 text-right">{r.admissions}</td>
+                  <td className="px-3 py-2 text-right">{money(r.receivable)}</td>
+                  <td className="px-3 py-2 text-right text-emerald-700">{money(r.collected)}<div className="text-[10px] text-slate-400">{collectionRate}%</div></td>
+                  <td className="px-3 py-2 text-right font-bold text-red-700">{money(r.outstanding)}</td>
+                  <td className="px-3 py-2 text-right text-amber-700">{money(r.payable)}</td>
+                  <td className="px-3 py-2 text-right">{money(r.pendingApproval)}</td>
+                  <td className={`px-3 py-2 text-right font-semibold ${r.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(r.net)}</td>
+                  <td className="px-3 py-2 text-right">{r.batches}<div className="text-[10px] text-slate-400">{r.filled}/{r.seats}</div></td>
+                  <td className="px-3 py-2 text-right">{r.fillRate}%</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {data.rows.length > 0 && (
+            <tfoot className="bg-slate-50 font-bold"><tr>
+              <td className="px-3 py-2">TOTAL</td><td className="px-3 py-2 text-right">{t.admissions}</td>
+              <td className="px-3 py-2 text-right">{money(t.receivable)}</td><td className="px-3 py-2 text-right text-emerald-700">{money(t.collected)}</td>
+              <td className="px-3 py-2 text-right text-red-700">{money(t.outstanding)}</td><td className="px-3 py-2 text-right text-amber-700">{money(t.payable)}</td>
+              <td className="px-3 py-2 text-right">{money(t.pendingApproval)}</td><td className="px-3 py-2 text-right">{money(t.net)}</td>
+              <td className="px-3 py-2 text-right">{t.filled}/{t.seats}</td><td className="px-3 py-2 text-right"></td>
+            </tr></tfoot>
+          )}
+        </table>
+        {data.rows.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No campus data yet.</div>}
+      </div>
+    </div>
+  );
+}
+
+function DashboardTab({ onOrders, campus = "" }: { onOrders?: () => void; campus?: string }) {
   const [stats, setStats] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [newOrders, setNewOrders] = useState(0);
+  const qs = campus ? `?branch=${encodeURIComponent(campus)}` : "";
   useEffect(() => {
-    Promise.all([fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).catch(() => null), fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).catch(() => []), fetch("/api/admin/admissions", { credentials: "same-origin" }).then((r) => r.json()).catch(() => []), fetch("/api/admin/orders", { credentials: "same-origin" }).then((r) => r.json()).catch(() => null)])
+    Promise.all([
+      fetch(`/api/admin/payments${qs}`, { credentials: "same-origin" }).then((r) => r.json()).catch(() => null),
+      fetch(`/api/admin/expenses${qs}`, { credentials: "same-origin" }).then((r) => r.json()).catch(() => []),
+      fetch(`/api/admin/admissions${qs}`, { credentials: "same-origin" }).then((r) => r.json()).catch(() => []),
+      fetch(`/api/admin/orders${qs}`, { credentials: "same-origin" }).then((r) => r.json()).catch(() => null),
+    ])
       .then(([pay, exp, adm, ord]) => {
         setExpenses(Array.isArray(exp) ? exp : []);
         if (ord && typeof ord.newCount === "number") setNewOrders(ord.newCount);
         if (pay?.totals) setStats({ pay, adm: Array.isArray(adm) ? adm : [] });
       });
-  }, []);
+  }, [campus]);
   if (!stats) return <div className="text-sm text-slate-500">Loading dashboard…</div>;
   const { payments, totals } = stats.pay;
   const pendingAdmissions = stats.adm.filter((a: any) => a.status === "pending").length;
@@ -946,7 +1061,7 @@ function DashboardTab({ onOrders }: { onOrders?: () => void }) {
   );
 }
 
-function PaymentsTab() {
+function PaymentsTab({ campus = "" }: { campus?: string }) {
   const [sub, setSub] = useState<"payments" | "receipts">("payments");
   const [data, setData] = useState<any>(null);
   const [filter, setFilter] = useState<"all" | "collected" | "pending">("all");
@@ -955,9 +1070,10 @@ function PaymentsTab() {
   const [students, setStudents] = useState<any[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>("new");
   const [newPay, setNewPay] = useState({ name: "", phone: "", email: "", course: "SI", medium: "Telugu", mode: "Offline", amount: 0, paidAmount: 0, dueDate: "", paymentMethod: "cash", transactionId: "", password: "", fatherName: "", address: "", branch: "Warangal", courseType: "Regular" });
-  const load = () => fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setData(d)).catch(() => {});
-  const loadStudents = () => fetch("/api/admin/students", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setStudents(d)).catch(() => {});
-  useEffect(() => { load(); loadStudents(); }, []);
+  const load = () => fetch(`/api/admin/payments${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => setData(d)).catch(() => {});
+  const loadStudents = () => fetch(`/api/admin/students${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setStudents(d)).catch(() => {});
+  useEffect(() => { load(); loadStudents(); }, [campus]);
+  useEffect(() => { setNewPay((x) => ({ ...x, branch: campus || x.branch })); }, [campus]);
   useEffect(() => {
     if (selectedStudent === "new") {
       setNewPay({ name: "", phone: "", email: "", course: "SI", medium: "Telugu", mode: "Offline", amount: 0, paidAmount: 0, dueDate: "", paymentMethod: "cash", transactionId: "", password: "", fatherName: "", address: "", branch: "Warangal", courseType: "Regular" });
@@ -994,7 +1110,7 @@ function PaymentsTab() {
         ))}
       </div>
       {sub === "receipts" ? (
-        <ReceiptsPanel />
+        <ReceiptsPanel campus={campus} />
       ) : (
       <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1076,10 +1192,12 @@ function PaymentsTab() {
 }
 
 // All payment receipts by student — name, course, date paid, amount, method + proof screenshot
-function ReceiptsPanel() {
+function ReceiptsPanel({ campus = "" }: { campus?: string }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [f, setF] = useState({ q: "", method: "", course: "", branch: "", from: "", to: "", legacy: "" });
+  // Global campus filter drives the receipts view unless the user overrides it locally
+  useEffect(() => { setF((x) => ({ ...x, branch: campus })); }, [campus]);
   const [courseOptions, setCourseOptions] = useState<string[]>([]);
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [view, setView] = useState<any>(null);
@@ -1214,7 +1332,7 @@ function ReceiptsPanel() {
   );
 }
 
-function StudentsTab() {
+function StudentsTab({ campus = "" }: { campus?: string }) {
   const [list, setList] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [pw, setPw] = useState<Record<string, string>>({});
@@ -1223,7 +1341,7 @@ function StudentsTab() {
   const [branchOptions, setBranchOptions] = useState<string[]>(["Warangal", "Hyderabad", "Hanamkonda", "Bollikunta (Residential)"]);
   const [courseOptions, setCourseOptions] = useState<string[]>(["SI", "Constable", "Groups", "SSC GD", "Defence", "Army", "UPSC"]);
   const [mediumOptions, setMediumOptions] = useState<string[]>(["Telugu", "English"]);
-  const load = () => fetch("/api/admin/students", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
+  const load = () => fetch(`/api/admin/students${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setList(d)).catch(() => {});
   useEffect(() => {
     load();
     fetch("/api/branches").then((r) => r.json()).then((d) => Array.isArray(d) && setBranchOptions(d.map((b: any) => b.name))).catch(() => {});
@@ -1313,12 +1431,12 @@ function StudentsTab() {
   );
 }
 
-function FinanceTab() {
+function FinanceTab({ campus = "" }: { campus?: string }) {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any>(null);
   const [form, setForm] = useState({ title: "", category: "Rent", amount: 0, dueDate: new Date().toISOString().slice(0, 10), status: "pending", vendor: "", notes: "" });
-  const loadExp = () => fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
-  const loadPay = () => fetch("/api/admin/payments", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setPayments(d)).catch(() => {});
+  const loadExp = () => fetch(`/api/admin/expenses${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
+  const loadPay = () => fetch(`/api/admin/payments${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => setPayments(d)).catch(() => {});
   useEffect(() => { loadExp(); loadPay(); }, []);
   const save = async () => {
     if (!form.title || !form.amount) return alert("Title and amount required");
@@ -1390,7 +1508,7 @@ function FinanceTab() {
   );
 }
 
-function LeadsTab() {
+function LeadsTab({ campus = "" }: { campus?: string }) {
   const [list, setList] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "new" | "contacted" | "converted">("all");
   const [q, setQ] = useState("");
@@ -1400,7 +1518,7 @@ function LeadsTab() {
   const [employeeOptions, setEmployeeOptions] = useState<string[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ notes: "", freeText: "", employeeName: "", dueDate: "", status: "new" });
-  const load = () => fetch("/api/admin/leads", { credentials: "same-origin" }).then((r) => r.json()).then((d) => {
+  const load = () => fetch(`/api/admin/leads${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => {
     if (Array.isArray(d)) {
       setList(d);
       const emps = Array.from(new Set(d.map((x: any) => String(x.employeeName || "").trim()).filter(Boolean))) as string[];
@@ -2260,13 +2378,15 @@ function FeeConfigTab() {
   );
 }
 
-function ExpenseTrackerTab() {
+function ExpenseTrackerTab({ campus = "" }: { campus?: string }) {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [q, setQ] = useState("");
-  const [form, setForm] = useState({ title: "", category: "General", amount: "", paidBy: "", paymentMethod: "cash", expenseDate: new Date().toISOString().slice(0, 10), dueDate: new Date().toISOString().slice(0, 10), notes: "" });
+  const [form, setForm] = useState({ title: "", category: "General", amount: "", paidBy: "", paymentMethod: "cash", expenseDate: new Date().toISOString().slice(0, 10), dueDate: new Date().toISOString().slice(0, 10), notes: "", branch: "" });
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  useEffect(() => { fetch("/api/branches").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setBranchOptions(d.map((b: any) => String(b.name || "")).filter(Boolean)); }).catch(() => {}); }, []);
   const [role, setRole] = useState<string>("super_admin");
-  const load = () => fetch("/api/admin/expenses", { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
+  const load = () => fetch(`/api/admin/expenses${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
   useEffect(() => {
     load();
     fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setRole(d.role || "super_admin")).catch(() => {});
@@ -2277,11 +2397,11 @@ function ExpenseTrackerTab() {
     const r = await fetch("/api/admin/expenses", { credentials: "same-origin", 
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: form.title, expense: form.title, category: form.category, amount: Number(form.amount), paidBy: form.paidBy, paymentMethod: form.paymentMethod, expenseDate: form.expenseDate, dueDate: form.dueDate, notes: form.notes }),
+      body: JSON.stringify({ title: form.title, expense: form.title, category: form.category, amount: Number(form.amount), paidBy: form.paidBy, paymentMethod: form.paymentMethod, expenseDate: form.expenseDate, dueDate: form.dueDate, notes: form.notes, branch: form.branch || campus }),
     });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
-      setForm({ title: "", category: "General", amount: "", paidBy: "", paymentMethod: "cash", expenseDate: new Date().toISOString().slice(0, 10), dueDate: new Date().toISOString().slice(0, 10), notes: "" });
+      setForm({ title: "", category: "General", amount: "", paidBy: "", paymentMethod: "cash", expenseDate: new Date().toISOString().slice(0, 10), dueDate: new Date().toISOString().slice(0, 10), notes: "", branch: campus });
       load();
       if (!isSuper) alert("Submitted for super_admin approval (pending)");
     } else alert(d.error || "Failed");
@@ -2400,6 +2520,13 @@ function ExpenseTrackerTab() {
               <div>
                 <label className="text-xs font-medium text-slate-700">Amount *</label>
                 <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="₹ amount" className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-slate-700">Campus</label>
+                <select value={form.branch || campus} onChange={(e) => setForm({ ...form, branch: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+                  <option value="">Unassigned / central</option>
+{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -2636,7 +2763,7 @@ function MastersTab() {
   );
 }
 
-function DuesTab() {
+function DuesTab({ campus = "" }: { campus?: string }) {
   const [view, setView] = useState<"queue" | "workspace" | "dues" | "receipts">("queue");
   const [queue, setQueue] = useState<any[]>([]);
   const [admissions, setAdmissions] = useState<any[]>([]);
@@ -2656,6 +2783,8 @@ function DuesTab() {
   const [dueEdit, setDueEdit] = useState<Record<string, { date: string; reason: string }>>({});
   const [dueHist, setDueHist] = useState<Record<string, any[]>>({});
   const [f, setF] = useState({ due: "all", status: "all", scope: "outstanding", branch: "", course: "", batch: "", from: "", to: "", q: "" });
+  // Global campus filter drives dues unless overridden locally
+  useEffect(() => { setF((x) => ({ ...x, branch: campus })); }, [campus]);
   const [duesLoaded, setDuesLoaded] = useState(false);
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [courseOptions, setCourseOptions] = useState<string[]>([]);
@@ -3144,7 +3273,7 @@ const ORDER_LABEL: Record<string, string> = {
   payment_failed: "Payment Failed",
 };
 
-function OrdersTab() {
+function OrdersTab({ campus = "" }: { campus?: string }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [newCount, setNewCount] = useState(0);
   const [filter, setFilter] = useState("all");
@@ -3152,7 +3281,7 @@ function OrdersTab() {
   const [note, setNote] = useState<Record<string, string>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const load = () =>
-    fetch("/api/admin/orders", { credentials: "same-origin",  cache: "no-store" })
+    fetch(`/api/admin/orders${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin",  cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d.orders)) setOrders(d.orders);
@@ -3302,7 +3431,8 @@ function AdminsTab() {
   const [resetTarget, setResetTarget] = useState<any | null>(null);
   const [resetPw, setResetPw] = useState("");
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [form, setForm] = useState({ email: "", password: "", name: "", role: "admissions" as Role, permissions: [] as string[], isActive: true });
+  const [form, setForm] = useState({ email: "", password: "", name: "", role: "admissions" as Role, permissions: [] as string[], branchIds: [] as string[], isActive: true });
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
 
   const load = () => {
     fetch("/api/admin/users", { cache: "no-store", credentials: "same-origin" })
@@ -3314,6 +3444,9 @@ function AdminsTab() {
       .catch(() => setMsg({ type: "err", text: "Failed to load admins — check network / session" }));
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    fetch("/api/branches").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setBranchOptions(d.map((b: any) => String(b.name || "")).filter(Boolean)); }).catch(() => {});
+  }, []);
 
   const togglePerm = (perm: string, list: string[], setter: (v: string[]) => void) => {
     if (list.includes(perm)) setter(list.filter((p) => p !== perm));
@@ -3330,7 +3463,7 @@ function AdminsTab() {
     if (r.ok) {
       setMsg({ type: "ok", text: `Created ${d.admin.email} — must change password on first login` });
       setShowCreate(false);
-      setForm({ email: "", password: "", name: "", role: "admissions", permissions: [], isActive: true });
+      setForm({ email: "", password: "", name: "", role: "admissions", permissions: [], branchIds: [], isActive: true });
       load();
     } else {
       const hint = r.status === 401 ? " (session expired — log in again as super_admin)" : r.status === 403 ? " (need super_admin)" : "";
@@ -3340,7 +3473,7 @@ function AdminsTab() {
 
   const saveEdit = async () => {
     if (!editing) return;
-    const r = await fetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: editing.id, name: editing.name, role: editing.role, permissions: editing.permissions, isActive: editing.isActive }) });
+    const r = await fetch("/api/admin/users", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id: editing.id, name: editing.name, role: editing.role, permissions: editing.permissions, branchIds: editing.branchIds || [], isActive: editing.isActive }) });
     const d = await r.json().catch(() => ({}));
     if (r.ok) {
       setMsg({ type: "ok", text: "Updated" });
@@ -3402,6 +3535,11 @@ function AdminsTab() {
                 <span className="font-semibold text-navy-900">{a.name}</span>
                 <span className={`text-xs px-2 py-1 rounded-full border capitalize ${roleBadge(a.role)}`}>{a.role.replace("_", " ")}</span>
                 {!a.isActive && <span className="text-xs px-2 py-1 rounded-full bg-red-50 border border-red-200 text-red-700">Deactivated</span>}
+                {a.role === "super_admin"
+                  ? <span className="text-xs px-2 py-1 rounded-full bg-violet-50 border border-violet-200 text-violet-700">All campuses</span>
+                  : (a.branchIds && a.branchIds.length > 0)
+                    ? <span className="text-xs px-2 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700">{a.branchIds.length} campus{a.branchIds.length > 1 ? "es" : ""}: {a.branchIds.join(", ")}</span>
+                    : <span className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600">All campuses</span>}
                 {a.mustChangePassword && <span className="text-xs px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700">Must change password</span>}
               </div>
               <div className="text-sm text-slate-600 mt-1">{a.email} <span className="text-slate-400">• @{a.username}</span></div>
@@ -3414,7 +3552,7 @@ function AdminsTab() {
               </div>
             </div>
             <div className="flex flex-wrap gap-1.5 shrink-0">
-              <button onClick={() => setEditing({ ...a, permissions: a.permissions || [] })} className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50">Edit</button>
+              <button onClick={() => setEditing({ ...a, permissions: a.permissions || [], branchIds: a.branchIds || [] })} className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50">Edit</button>
               <button onClick={() => setResetTarget(a)} className="px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs hover:bg-amber-100">Reset PW</button>
               <button onClick={() => del(a.id, a.email)} className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-red-600 hover:bg-red-50">Delete</button>
             </div>
@@ -3473,6 +3611,23 @@ function AdminsTab() {
                   <button onClick={() => setForm({ ...form, permissions: [] })} className="text-slate-500 hover:underline">Clear (use role defaults)</button>
                 </div>
               </div>
+              <div>
+                <label className="text-xs font-medium">Campus Access (branch)</label>
+                <div className="text-[11px] text-slate-500">Pick one or more campuses. The admin will only see and act on data for the selected campuses. Leave empty for all campuses.</div>
+                <div className="mt-2 flex flex-wrap gap-1.5 p-3 rounded-xl bg-slate-50 border">
+                  {branchOptions.length === 0 && <div className="text-xs text-slate-400">No campuses configured</div>}
+                  {branchOptions.map((b) => (
+                    <label key={b} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border cursor-pointer ${form.branchIds.includes(b) ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>
+                      <input type="checkbox" checked={form.branchIds.includes(b)} onChange={() => togglePerm(b, form.branchIds, (v) => setForm({ ...form, branchIds: v }))} className="accent-navy-900" />
+                      {b}
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-1 flex gap-3 text-xs">
+                  <button type="button" onClick={() => setForm({ ...form, branchIds: [...branchOptions] })} className="text-sky-700 hover:underline">All campuses</button>
+                  <button type="button" onClick={() => setForm({ ...form, branchIds: [] })} className="text-slate-500 hover:underline">Clear (all campuses)</button>
+                </div>
+              </div>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> Active (can login)</label>
               <div className="flex gap-2">
                 <button onClick={create} className="flex-1 btn-primary justify-center">Create Admin →</button>
@@ -3516,6 +3671,22 @@ function AdminsTab() {
                 <div className="mt-1 flex gap-2 text-xs">
                   <button onClick={() => setEditing({ ...editing, permissions: ADMIN_TABS.map((t) => t.id) })} className="text-sky-700 hover:underline">Select all</button>
                   <button onClick={() => setEditing({ ...editing, permissions: [] })} className="text-slate-500 hover:underline">Clear (use role defaults)</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Campus Access (branch)</label>
+                <div className="text-[11px] text-slate-500">Restrict what this admin can see and act on. Empty = all campuses.</div>
+                <div className="mt-2 flex flex-wrap gap-1.5 p-3 rounded-xl bg-slate-50 border">
+                  {branchOptions.map((b) => (
+                    <label key={b} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border cursor-pointer ${(editing.branchIds || []).includes(b) ? "bg-navy-900 text-white border-navy-900" : "bg-white border-slate-200"}`}>
+                      <input type="checkbox" checked={(editing.branchIds || []).includes(b)} onChange={() => togglePerm(b, editing.branchIds || [], (v) => setEditing({ ...editing, branchIds: v }))} className="accent-navy-900" />
+                      {b}
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-1 flex gap-3 text-xs">
+                  <button type="button" onClick={() => setEditing({ ...editing, branchIds: [...branchOptions] })} className="text-sky-700 hover:underline">All campuses</button>
+                  <button type="button" onClick={() => setEditing({ ...editing, branchIds: [] })} className="text-slate-500 hover:underline">Clear (all campuses)</button>
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!editing.isActive} onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })} /> Active</label>

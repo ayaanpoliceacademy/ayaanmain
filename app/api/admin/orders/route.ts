@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch } from "@/lib/branch-scope";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
-  const { searchParams } = new URL(req.url);
+const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
+  // Campus scoping via the customer's registered campus
+  const scope = scopeFromAuth(auth);
+  const requested = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
+  let userWhere: any = {};
+  if (scope.branches !== null) userWhere = { branch: { in: scope.branches } };
+  else if (requested.branch) userWhere = { branch: requested.branch };
+  const scoped = Object.keys(userWhere).length > 0 ? { user: userWhere } : {};
   const [orders, newCount] = await Promise.all([
     prisma.storeOrder.findMany({
-      where: status && status !== "all" ? { status } : {},
+      where: { ...(status && status !== "all" ? { status } : {}), ...scoped },
       include: { items: true, events: { orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" },
       take: 500,
     }),
-    prisma.storeOrder.count({ where: { status: { in: ["placed", "payment_confirmed"] } } }),
+    prisma.storeOrder.count({ where: { status: { in: ["placed", "payment_confirmed"] }, ...scoped } }),
   ]);
   return NextResponse.json({ orders, newCount }, { headers: { "Cache-Control": "no-store" } });
 }

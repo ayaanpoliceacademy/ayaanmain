@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { supabaseAdmin } from "@/lib/supabase";
 import { newStudentId, newDigitalIdNo, addMonths, audit } from "@/lib/identifiers";
 import { sendEmail, tplClarification, tplDiscount, tplAdmissionApproved, tplAdmissionRejected } from "@/lib/email";
+import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch } from "@/lib/branch-scope";
 
 function generateInitialPassword(): string {
   // 12-char random, e.g. Ayaan@A1B2C3 — per-student, not shared
@@ -15,7 +16,14 @@ function generateInitialPassword(): string {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions"]);
   if (auth.error) return auth.error;
-  const admissions = await prisma.admission.findMany({ orderBy: { createdAt: "desc" }, take: 2000 });
+  const scope = scopeFromAuth(auth);
+  const { searchParams } = new URL(req.url);
+  const requested = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
+  const where: any = {};
+  if (scope.branches !== null) where.branch = { in: scope.branches };
+  else if (requested.branch) where.branch = requested.branch;
+  const admissions = await prisma.admission.findMany({ where, orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(admissions, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -41,6 +49,10 @@ export async function POST(req: NextRequest) {
 
   const admission = await prisma.admission.findUnique({ where: { id } });
   if (!admission) return NextResponse.json({ error: "Admission not found" }, { status: 404 });
+
+  // Campus guard: a campus admin may only act on admissions at their campuses
+  const scope = scopeFromAuth(auth);
+  if (!canActOn(scope, admission.branch)) return forbidBranch(admission.branch);
 
   // ---- Clarification ----
   if (action === "request_clarification") {

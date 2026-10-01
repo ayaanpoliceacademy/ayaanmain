@@ -18,13 +18,40 @@ function sanitizePermissions(perms: any): string[] {
   return out;
 }
 
+// Campuses must exist in the Branch master — prevents typos that would silently
+// scope an admin to a campus that does not exist (and hide all their data).
+async function sanitizeBranches(input: any): Promise<string[]> {
+  if (!Array.isArray(input)) return [];
+  const wanted: string[] = [];
+  for (const b of input) {
+    const v = String(b || "").trim();
+    if (v && !wanted.some((w) => w.toLowerCase() === v.toLowerCase())) wanted.push(v);
+  }
+  if (wanted.length === 0) return [];
+  const all = await prisma.branch.findMany({ select: { name: true } });
+  const byKey = new Map(all.map((b) => [b.name.trim().toLowerCase(), b.name]));
+  const out: string[] = [];
+  const unknown: string[] = [];
+  for (const w of wanted) {
+    const match = byKey.get(w.toLowerCase());
+    if (match) { if (!out.includes(match)) out.push(match); }
+    else unknown.push(w);
+  }
+  if (unknown.length > 0) {
+    const err: any = new Error(`Unknown campus: ${unknown.join(", ")}`);
+    (err as any).status = 400;
+    throw err;
+  }
+  return out;
+}
+
 // GET /api/admin/users — list all admins (super_admin only)
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin"]);
   if (auth.error) return auth.error;
   const admins = await prisma.admin.findMany({
     orderBy: { createdAt: "desc" },
-    select: { id: true, username: true, email: true, role: true, name: true, mustChangePassword: true, permissions: true, isActive: true, createdAt: true, updatedAt: true },
+    select: { id: true, username: true, email: true, role: true, name: true, mustChangePassword: true, permissions: true, branchIds: true, isActive: true, createdAt: true, updatedAt: true },
   });
   return NextResponse.json(admins, { headers: { "Cache-Control": "no-store" } });
 }
@@ -39,12 +66,20 @@ export async function POST(req: NextRequest) {
   const name = String(body.name || "").trim();
   const role = String(body.role || "").trim();
   const permissions = sanitizePermissions(body.permissions);
+  let branchIds: string[] = [];
+  try {
+    branchIds = await sanitizeBranches(body.branchIds);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 400 });
+  }
   let username = String(body.username || "").trim();
 
   if (!email || !email.includes("@")) return NextResponse.json({ error: "Valid email required" }, { status: 400 });
   if (!password || password.length < 8) return NextResponse.json({ error: "Password required (min 8 chars)" }, { status: 400 });
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   if (!ALLOWED_ROLES.includes(role)) return NextResponse.json({ error: `Role must be one of: ${ALLOWED_ROLES.join(", ")}` }, { status: 400 });
+  // super_admin is always global — storing campuses on them would be misleading
+  if (role === "super_admin") branchIds = [];
 
   // Derive username from email if not provided
   if (!username) username = email.split("@")[0].replace(/[^a-z0-9._-]/gi, "_").toLowerCase();
@@ -86,11 +121,12 @@ export async function POST(req: NextRequest) {
         name,
         mustChangePassword: true,
         permissions,
+        branchIds,
         isActive: body.isActive === false ? false : true,
       },
     });
-    await audit("admin", admin.id, auth.session.username || auth.session.userId, "create", `${email} role:${role}`);
-    return NextResponse.json({ ok: true, admin: { id: admin.id, username: admin.username, email: admin.email, role: admin.role, name: admin.name, permissions: admin.permissions, isActive: admin.isActive, mustChangePassword: admin.mustChangePassword } });
+    await audit("admin", admin.id, auth.session.username || auth.session.userId, "create", `${email} role:${role} campuses:${branchIds.join("|") || "ALL"}`);
+    return NextResponse.json({ ok: true, admin: { id: admin.id, username: admin.username, email: admin.email, role: admin.role, name: admin.name, permissions: admin.permissions, branchIds: admin.branchIds, isActive: admin.isActive, mustChangePassword: admin.mustChangePassword } });
   } catch (e: any) {
     // Rollback Supabase user if Prisma fails
     try { await supabaseAdmin.auth.admin.deleteUser(sbUser.user.id); } catch {}
@@ -129,6 +165,15 @@ export async function PUT(req: NextRequest) {
   if (body.permissions !== undefined) {
     data.permissions = sanitizePermissions(body.permissions);
   }
+  if (body.branchIds !== undefined) {
+    try {
+      const next = await sanitizeBranches(body.branchIds);
+      // A super_admin is always global — storing campuses on them would be misleading
+      data.branchIds = (body.role ?? existing.role) === "super_admin" ? [] : next;
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+  }
   if (body.isActive !== undefined) {
     data.isActive = !!body.isActive;
     // If deactivating, delete sessions
@@ -145,8 +190,8 @@ export async function PUT(req: NextRequest) {
   if (body.mustChangePassword !== undefined) data.mustChangePassword = !!body.mustChangePassword;
 
   const updated = await prisma.admin.update({ where: { id }, data });
-  await audit("admin", id, auth.session.username || auth.session.userId, "update", JSON.stringify(Object.keys(data)));
-  return NextResponse.json({ ok: true, admin: { id: updated.id, username: updated.username, email: updated.email, role: updated.role, name: updated.name, permissions: updated.permissions, isActive: updated.isActive, mustChangePassword: updated.mustChangePassword } });
+  await audit("admin", id, auth.session.username || auth.session.userId, "update", `${JSON.stringify(Object.keys(data))} campuses:${(updated.branchIds || []).join("|") || "ALL"}`);
+  return NextResponse.json({ ok: true, admin: { id: updated.id, username: updated.username, email: updated.email, role: updated.role, name: updated.name, permissions: updated.permissions, branchIds: updated.branchIds, isActive: updated.isActive, mustChangePassword: updated.mustChangePassword } });
 }
 
 // DELETE /api/admin/users?id=xxx

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { supabaseAdmin } from "@/lib/supabase";
+import { scopeFromAuth, resolveBranchFilter, keepBranch, canActOn, forbidBranch, allowedBranches } from "@/lib/branch-scope";
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
@@ -56,6 +57,12 @@ export async function POST(req: NextRequest) {
   const fee = Number(amount);
   const paid = paidAmount !== undefined && paidAmount !== "" ? Math.min(Number(amount), Number(paidAmount)) : Number(amount);
   const id = `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
+
+  // Campus scoping: a campus admin may only record fees for their own campuses
+  const scope = scopeFromAuth(auth);
+  const targetBranch = String(body.branch || (user ? (user as any).branch : "") || branch || "").trim();
+  if (!canActOn(scope, targetBranch)) return forbidBranch(targetBranch);
+
   const entry = await prisma.payment.create({
     data: {
       id,
@@ -67,6 +74,7 @@ export async function POST(req: NextRequest) {
       course: String(course),
       medium: String(medium || "Telugu"),
       mode: String(mode || "Offline"),
+      branch: targetBranch,
       amount: fee,
       paidAmount: paid,
       dueDate: dueDate ? new Date(dueDate) : null,
@@ -85,11 +93,18 @@ export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
 
+  // Campus scoping: restrict to the admin's assigned campuses, then apply the ?branch= filter
+  const scope = scopeFromAuth(auth);
+  const { searchParams } = new URL(req.url);
+  const branchFilter = resolveBranchFilter(scope, searchParams.get("branch"));
+  if (branchFilter.error) return NextResponse.json({ error: branchFilter.error }, { status: 403 });
+  const only = branchFilter.branch ? [branchFilter.branch] : null;
+
   // Unified source: legacy manual payments + admission-flow fee payments.
   // Registration splits become fee_payments (pending_verification) at submit and
   // acknowledged ones (with receipts) after admin approval — both must show here.
   const [payments, feePayments, usersCount] = await Promise.all([
-    prisma.payment.findMany({ orderBy: { createdAt: "desc" }, take: 2000 }),
+    prisma.payment.findMany({ where: only ? { branch: { in: only } } : {}, orderBy: { createdAt: "desc" }, take: 2000 }),
     prisma.feePayment.findMany({
       orderBy: { createdAt: "desc" },
       take: 2000,
@@ -102,8 +117,8 @@ export async function GET(req: NextRequest) {
   const admIds = Array.from(new Set(feePayments.map((p) => p.admissionId).filter(Boolean)));
   const stuIds = Array.from(new Set(feePayments.map((p) => String(p.studentId || "")).filter(Boolean)));
   const [adms, users] = feePayments.length === 0 ? [[], []] : await Promise.all([
-    admIds.length > 0 ? prisma.admission.findMany({ where: { id: { in: admIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true } }) : Promise.resolve([]),
-    stuIds.length > 0 ? prisma.user.findMany({ where: { id: { in: stuIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true } }) : Promise.resolve([]),
+    admIds.length > 0 ? prisma.admission.findMany({ where: { id: { in: admIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true, branch: true } }) : Promise.resolve([]),
+    stuIds.length > 0 ? prisma.user.findMany({ where: { id: { in: stuIds } }, select: { id: true, name: true, email: true, phone: true, course: true, medium: true, mode: true, branch: true } }) : Promise.resolve([]),
   ]);
   const admById = new Map(adms.map((a: any) => [a.id, a]));
   const userById = new Map(users.map((u: any) => [u.id, u]));
@@ -121,6 +136,7 @@ export async function GET(req: NextRequest) {
       email: u?.email || a?.email || "",
       phone: u?.phone || a?.phone || "",
       course: a?.course || u?.course || "",
+      branch: a?.branch || u?.branch || "",
       medium: a?.medium || u?.medium || "",
       mode: a?.mode || u?.mode || "",
       amount,
@@ -141,6 +157,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Campus scope: fee payments carry the admission's campus, so filter after mapping
+  const scopedFee = keepBranch(feeMapped, scope, (p: any) => p.branch);
+
   const formatted = [...payments.map((p: any) => {
     const fee = p.amount;
     const paidAmount = p.paidAmount;
@@ -153,6 +172,7 @@ export async function GET(req: NextRequest) {
       email: p.email,
       phone: p.phone,
       course: p.course,
+      branch: p.branch || "",
       medium: p.medium,
       mode: p.mode,
       amount: fee,
@@ -169,7 +189,7 @@ export async function GET(req: NextRequest) {
       approved: p.status === "approved",
       src: "legacy",
     };
-  }), ...feeMapped].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }), ...scopedFee].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const totalReceivable = formatted.reduce((s: number, p: any) => s + p.receivable, 0);
   const totalCollected = formatted.reduce((s: number, p: any) => s + p.collected, 0);
