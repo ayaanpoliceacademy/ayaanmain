@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AuthForgotPassword from "@/components/AuthForgotPassword";
 import { DonutChart, GroupedBarChart, CHART_COLORS } from "@/components/Charts";
 import ReceiptView from "@/components/ReceiptView";
@@ -535,6 +535,7 @@ function AdmissionsTab() {
   const [clarNote, setClarNote] = useState<Record<string, string>>({});
   const [discAmt, setDiscAmt] = useState<Record<string, string>>({});
   const [startDate, setStartDate] = useState<Record<string, string>>({});
+  const [feeDue, setFeeDue] = useState<Record<string, string>>({});
   const [role, setRole] = useState("super_admin");
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [courseOptions, setCourseOptions] = useState<string[]>([]);
@@ -748,12 +749,27 @@ function AdmissionsTab() {
                 </div>
                 {a.status === "pending" && (
                   <div className="flex gap-2 items-center flex-wrap">
-                    <input type="date" value={startDate[a.id] || ""} onChange={(e) => setStartDate({ ...startDate, [a.id]: e.target.value })} className="px-3 py-2 rounded-xl border border-slate-200 text-sm" title="Override admission start date (default: batch start)" />
-                    <button onClick={() => act(a.id, "approve", startDate[a.id] ? { admissionStartDate: startDate[a.id] } : {})} className="px-4 py-2 rounded-full bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">Approve → Student ID + Ayaan@1234</button>
-                    <button onClick={() => act(a.id, "reject")} className="px-3 py-2 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50">Reject</button>
+                    <label className="text-xs text-slate-500 flex flex-col gap-0.5">
+                      Start date
+                      <input type="date" value={startDate[a.id] || ""} onChange={(e) => setStartDate({ ...startDate, [a.id]: e.target.value })} className="px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+                    </label>
+                    <label className="text-xs font-semibold text-amber-700 flex flex-col gap-0.5">
+                      Fee due date (installment date) *
+                      <input type="date" value={feeDue[a.id] || ""} onChange={(e) => setFeeDue({ ...feeDue, [a.id]: e.target.value })} className="px-3 py-2 rounded-xl border-2 border-amber-300 text-sm" />
+                    </label>
+                    <button
+                      onClick={() => {
+                        if (!feeDue[a.id]) return alert("Enter the Fee due date (installment date) — dues tracking needs it");
+                        act(a.id, "approve", { ...(startDate[a.id] ? { admissionStartDate: startDate[a.id] } : {}), dueDate: feeDue[a.id] });
+                      }}
+                      className="px-4 py-2 rounded-full bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 self-end"
+                    >
+                      Approve → Student ID + Ayaan@1234
+                    </button>
+                    <button onClick={() => act(a.id, "reject")} className="px-3 py-2 rounded-full bg-white border border-slate-200 text-xs hover:bg-slate-50 self-end">Reject</button>
                   </div>
                 )}
-                <div className="text-[11px] text-slate-400">Approve: locks batch seat (capacity-checked), generates Student ID + Digital ID, creates login (email / Ayaan@1234, must-change), migrates splits, creates Installment 1.</div>
+                <div className="text-[11px] text-slate-400">Approve: locks batch seat (capacity-checked), generates Student ID + Digital ID, creates login (must-change), migrates splits, creates Installment 1 for the full fee due on the date above.</div>
               </div>
             )}
             {a.status === "discount_pending" && (
@@ -2480,6 +2496,7 @@ function DuesTab() {
   const [receipts, setReceipts] = useState<any[]>([]);
   const [auditTrail, setAuditTrail] = useState<any[]>([]);
   const [duesRows, setDuesRows] = useState<any[]>([]);
+  const [duesTotals, setDuesTotals] = useState<any>(null);
   const [allReceipts, setAllReceipts] = useState<any[]>([]);
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [ackFor, setAckFor] = useState<string | null>(null);
@@ -2487,7 +2504,7 @@ function DuesTab() {
   const [newInst, setNewInst] = useState({ label: "", amount: "", dueDate: "", notes: "" });
   const [dueEdit, setDueEdit] = useState<Record<string, { date: string; reason: string }>>({});
   const [dueHist, setDueHist] = useState<Record<string, any[]>>({});
-  const [f, setF] = useState({ due: "all", status: "all", branch: "", course: "", batch: "", from: "", to: "", q: "" });
+  const [f, setF] = useState({ due: "all", status: "all", scope: "outstanding", branch: "", course: "", batch: "", from: "", to: "", q: "" });
   const [duesLoaded, setDuesLoaded] = useState(false);
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [courseOptions, setCourseOptions] = useState<string[]>([]);
@@ -2531,10 +2548,10 @@ function DuesTab() {
   const refreshWorkspace = () => sel && openWorkspace(sel);
 
   const loadDues = async () => {
-    const p = new URLSearchParams({ due: f.due, status: f.status, branch: f.branch, course: f.course, batch: f.batch, from: f.from, to: f.to, q: f.q });
+    const p = new URLSearchParams({ due: f.due, status: f.status, scope: f.scope, branch: f.branch, course: f.course, batch: f.batch, from: f.from, to: f.to, q: f.q });
     const r = await fetch(`/api/admin/dues?${p.toString()}`, { cache: "no-store" });
-    const d = await r.json().catch(() => []);
-    if (Array.isArray(d)) { setDuesRows(d); setDuesLoaded(true); }
+    const d = await r.json().catch(() => null);
+    if (d && Array.isArray(d.rows)) { setDuesRows(d.rows); setDuesTotals(d.totals || null); setDuesLoaded(true); }
   };
   // Live search: debounce the text query into an auto reload
   useEffect(() => {
@@ -2548,6 +2565,42 @@ function DuesTab() {
     const d = await r.json().catch(() => []);
     if (Array.isArray(d)) setAllReceipts(d);
   };
+
+  // Roll installment rows up into one receivable line per student
+  const duesByStudent = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const r of duesRows) {
+      const a = r.admission || {};
+      const key = a.id || r.key;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key, name: r.student?.name || "—", phone: r.student?.phone || "", email: r.student?.email || "",
+          studentId: a.studentId || "", applicationId: a.applicationId || "",
+          course: a.course || "", branch: a.branch || "", batchName: a.batchName || "",
+          fee: 0, paid: 0, outstanding: 0, dueDate: null, dueStatus: "Not Due", parts: 0,
+        };
+        map.set(key, g);
+      }
+      g.fee += Number(r.installment?.originalAmount || 0);
+      g.paid += Number(r.installment?.paidAmount || 0);
+      g.outstanding += Number(r.installment?.outstanding || 0);
+      g.parts += 1;
+      if (Number(r.installment?.outstanding || 0) > 0) {
+        const d = r.installment?.dueDate ? new Date(r.installment.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        if (g.dueDate === null || d < new Date(g.dueDate).getTime()) { g.dueDate = r.installment?.dueDate || null; g.dueStatus = r.installment?.dueStatus || "Not Due"; }
+      }
+    }
+    const list = Array.from(map.values());
+    list.sort((x, y) => {
+      const rank = (s: string) => (s === "Overdue" ? 0 : s === "Due Today" ? 1 : s === "Due Soon" ? 2 : 3);
+      if (rank(x.dueStatus) !== rank(y.dueStatus)) return rank(x.dueStatus) - rank(y.dueStatus);
+      const xa = x.dueDate ? new Date(x.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const ya = y.dueDate ? new Date(y.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return xa - ya;
+    });
+    return list;
+  }, [duesRows]);
 
   const acknowledge = async (payId: string) => {
     const rows = allocRows.filter((r) => r.installmentId && Number(r.amount) > 0).map((r) => ({ installmentId: r.installmentId, amount: Number(r.amount) }));
@@ -2618,15 +2671,18 @@ function DuesTab() {
         ))}
       </div>
       {(() => {
-        const totalOut = duesRows.reduce((s: number, r: any) => s + Number(r.installment?.outstanding || 0), 0);
-        const overdueRows = duesRows.filter((r: any) => r.installment?.dueStatus === "Overdue");
-        const overdueAmt = overdueRows.reduce((s: number, r: any) => s + Number(r.installment?.outstanding || 0), 0);
-        const pendingCount = duesRows.filter((r: any) => r.installment?.status === "pending").length;
+        const totalOut = Number(duesTotals?.outstanding ?? duesRows.reduce((s: number, r: any) => s + Number(r.installment?.outstanding || 0), 0));
+        const overdueAmt = Number(duesTotals?.overdue ?? 0);
+        const dueSoonAmt = Number(duesTotals?.dueSoon ?? 0);
+        const pendingCount = Number(duesTotals?.pendingCount ?? 0);
+        const partialCount = Number(duesTotals?.partialCount ?? 0);
+        const studentCount = Number(duesTotals?.students ?? 0);
         return (
-          <div className="grid sm:grid-cols-4 gap-3">
-            <div className="card p-4"><div className="text-xs text-slate-500">Total Outstanding</div><div className="text-xl font-bold text-red-700">₹{totalOut.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">{duesRows.length} dues rows</div></div>
-            <div className="card p-4"><div className="text-xs text-slate-500">Overdue</div><div className="text-xl font-bold text-red-700">₹{overdueAmt.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">{overdueRows.length} overdue</div></div>
-            <div className="card p-4"><div className="text-xs text-slate-500">Pending Payments</div><div className="text-xl font-bold text-amber-700">{pendingCount}</div><div className="text-[11px] text-slate-400">unpaid installments</div></div>
+          <div className="grid sm:grid-cols-5 gap-3">
+            <div className="card p-4"><div className="text-xs text-slate-500">Total Receivable (Future Fees)</div><div className="text-xl font-bold text-red-700">₹{totalOut.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">{studentCount} students · {duesRows.length} dues</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Overdue</div><div className="text-xl font-bold text-red-700">₹{overdueAmt.toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">past due date</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Due Today / Soon</div><div className="text-xl font-bold text-amber-700">₹{(Number(duesTotals?.dueToday ?? 0) + dueSoonAmt).toLocaleString("en-IN")}</div><div className="text-[11px] text-slate-400">within 7 days</div></div>
+            <div className="card p-4"><div className="text-xs text-slate-500">Unpaid Schedules</div><div className="text-xl font-bold text-navy-900">{pendingCount + partialCount}</div><div className="text-[11px] text-slate-400">{pendingCount} pending · {partialCount} partial</div></div>
             <div className="card p-4"><div className="text-xs text-slate-500">Verify Queue</div><div className="text-xl font-bold text-sky-700">{queue.length}</div><div className="text-[11px] text-slate-400">awaiting acknowledgement</div></div>
           </div>
         );
@@ -2787,10 +2843,11 @@ function DuesTab() {
 
       {view === "dues" && (
         <div className="card p-5">
-          <h2 className="font-semibold text-navy-900">Due Payments</h2>
+          <h2 className="font-semibold text-navy-900">Due Payments — all future fees receivable</h2>
           <div className="mt-3 grid sm:grid-cols-4 gap-2 text-xs">
             <select value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="all">All due states</option><option value="today">Due Today</option><option value="soon">Due Soon</option><option value="overdue">Overdue</option><option value="notdue">Not Due</option></select>
             <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="all">All payment states</option><option value="pending">Pending</option><option value="partial">Partially Paid</option><option value="paid">Paid</option></select>
+            <select value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="outstanding">Outstanding only</option><option value="all">All fees (incl. paid)</option></select>
             <select value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All branches</option>{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
             <select value={f.course} onChange={(e) => setF({ ...f, course: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
             <input value={f.batch} onChange={(e) => setF({ ...f, batch: e.target.value })} placeholder="Batch name filter" className="px-2 py-2 rounded-lg border bg-white" />
@@ -2800,28 +2857,57 @@ function DuesTab() {
           </div>
           <div className="mt-3 flex gap-2 items-center flex-wrap">
             <button onClick={loadDues} className="px-5 py-2 rounded-full bg-navy-900 text-white text-xs">Apply Filters →</button>
-            {(f.due !== "all" || f.status !== "all" || f.branch || f.course || f.batch || f.from || f.to || f.q) && <button onClick={() => { setF({ due: "all", status: "all", branch: "", course: "", batch: "", from: "", to: "", q: "" }); }} className="text-xs text-slate-500 hover:underline">Clear filters</button>}
+            {(f.due !== "all" || f.status !== "all" || f.scope !== "outstanding" || f.branch || f.course || f.batch || f.from || f.to || f.q) && <button onClick={() => { setF({ due: "all", status: "all", scope: "outstanding", branch: "", course: "", batch: "", from: "", to: "", q: "" }); }} className="text-xs text-slate-500 hover:underline">Clear filters</button>}
           </div>
-          <div className="mt-4 overflow-auto border rounded-2xl max-h-[60vh]">
-            <table className="w-full text-xs min-w-[900px]">
-              <thead className="bg-slate-50 sticky top-0"><tr className="text-left text-slate-500"><th className="px-3 py-2">Student</th><th className="px-3 py-2">IDs</th><th className="px-3 py-2">Course/Branch/Batch</th><th className="px-3 py-2">Installment</th><th className="px-3 py-2 text-right">Original</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Outstanding</th><th className="px-3 py-2">Due</th><th className="px-3 py-2">Status</th></tr></thead>
+
+          {/* Per-student receivable rollup — one row per student, always shows the full balance */}
+          <div className="mt-4 overflow-auto border rounded-2xl max-h-[45vh]">
+            <table className="w-full text-xs min-w-[1000px]">
+              <thead className="bg-slate-50 sticky top-0 z-10"><tr className="text-left text-slate-500"><th className="px-3 py-2">Student</th><th className="px-3 py-2">IDs</th><th className="px-3 py-2">Course / Branch / Batch</th><th className="px-3 py-2 text-right">Total Fee</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Balance Due</th><th className="px-3 py-2">Due Date</th><th className="px-3 py-2">Status</th></tr></thead>
               <tbody className="divide-y">
-                {duesRows.map((r: any) => (
-                  <tr key={r.installment.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2"><b>{r.student.name}</b><div className="text-slate-500">{r.student.phone}</div></td>
-                    <td className="px-3 py-2">{r.admission.studentId || "—"}<div className="text-slate-500">{r.admission.applicationId || ""}</div></td>
-                    <td className="px-3 py-2">{r.admission.course} • {r.admission.branch}<div className="text-slate-500">{r.admission.batchName || ""}</div></td>
-                    <td className="px-3 py-2">{r.installment.label}</td>
-                    <td className="px-3 py-2 text-right">₹{Number(r.installment.originalAmount).toLocaleString("en-IN")}</td>
-                    <td className="px-3 py-2 text-right">₹{Number(r.installment.paidAmount || 0).toLocaleString("en-IN")}</td>
-                    <td className="px-3 py-2 text-right font-bold">₹{Number(r.installment.outstanding).toLocaleString("en-IN")}</td>
-                    <td className="px-3 py-2">{new Date(r.installment.dueDate).toLocaleDateString("en-IN")}<div>{r.installment.dueStatus}</div></td>
-                    <td className="px-3 py-2">{r.installment.status}</td>
+                {duesByStudent.map((g: any) => (
+                  <tr key={g.key} className="hover:bg-slate-50">
+                    <td className="px-3 py-2"><b>{g.name}</b><div className="text-slate-500">{g.phone || "—"}</div></td>
+                    <td className="px-3 py-2">{g.studentId || "—"}<div className="text-slate-500">{g.applicationId || ""}</div></td>
+                    <td className="px-3 py-2">{g.course || "—"} • {g.branch || "—"}<div className="text-slate-500 font-semibold">{g.batchName || "No batch"}</div></td>
+                    <td className="px-3 py-2 text-right">₹{g.fee.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-2 text-right text-emerald-700">₹{g.paid.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-2 text-right font-bold text-red-700">₹{g.outstanding.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-2">{g.dueDate ? new Date(g.dueDate).toLocaleDateString("en-IN") : <span className="text-amber-600">Not set</span>}<div className={g.dueStatus === "Overdue" ? "text-red-600" : g.dueStatus === "Due Soon" || g.dueStatus === "Due Today" ? "text-amber-600" : "text-slate-500"}>{g.dueStatus}</div></td>
+                    <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full border ${g.outstanding <= 0 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : g.paid > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-100 border-slate-200 text-slate-600"}`}>{g.outstanding <= 0 ? "Paid" : g.paid > 0 ? "Partially Paid" : "Pending"}</span><div className="text-[10px] text-slate-400 mt-0.5">{g.parts} due{Number(g.parts) > 1 ? "s" : ""}</div></td>
                   </tr>
                 ))}
               </tbody>
+              {duesByStudent.length > 0 && (
+                <tfoot className="bg-slate-50 font-bold"><tr><td className="px-3 py-2" colSpan={3}>TOTAL RECEIVABLE</td><td className="px-3 py-2 text-right">₹{duesByStudent.reduce((s: number, g: any) => s + g.fee, 0).toLocaleString("en-IN")}</td><td className="px-3 py-2 text-right text-emerald-700">₹{duesByStudent.reduce((s: number, g: any) => s + g.paid, 0).toLocaleString("en-IN")}</td><td className="px-3 py-2 text-right text-red-700">₹{duesByStudent.reduce((s: number, g: any) => s + g.outstanding, 0).toLocaleString("en-IN")}</td><td className="px-3 py-2" colSpan={2}>{duesByStudent.length} students</td></tr></tfoot>
+              )}
             </table>
-            {duesRows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">{duesLoaded ? "No dues match these filters." : "Loading dues…"}</div>}
+            {duesByStudent.length === 0 && <div className="p-8 text-center text-xs text-slate-400">{duesLoaded ? "No outstanding fees match these filters." : "Loading dues…"}</div>}
+          </div>
+
+          {/* Installment / due-date breakdown */}
+          <div className="mt-4">
+            <div className="text-xs font-bold tracking-widest text-slate-500 mb-2">DUE-DATE BREAKDOWN ({duesRows.length})</div>
+            <div className="overflow-auto border rounded-2xl max-h-[45vh]">
+              <table className="w-full text-xs min-w-[900px]">
+                <thead className="bg-slate-50 sticky top-0"><tr className="text-left text-slate-500"><th className="px-3 py-2">Student</th><th className="px-3 py-2">Course/Branch/Batch</th><th className="px-3 py-2">Installment</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Outstanding</th><th className="px-3 py-2">Due Date</th><th className="px-3 py-2">Status</th></tr></thead>
+                <tbody className="divide-y">
+                  {duesRows.map((r: any) => (
+                    <tr key={r.key} className="hover:bg-slate-50">
+                      <td className="px-3 py-2"><b>{r.student.name}</b><div className="text-slate-500">{r.admission.studentId || r.admission.applicationId || "—"}</div></td>
+                      <td className="px-3 py-2">{r.admission.course} • {r.admission.branch}<div className="text-slate-500">{r.admission.batchName || "No batch"}</div></td>
+                      <td className="px-3 py-2">{r.installment.label}{r.kind === "balance" && <div className="text-[10px] text-amber-600">no schedule — set one in Workspace</div>}{r.kind === "unscheduled" && <div className="text-[10px] text-amber-600">fee exceeds schedule</div>}</td>
+                      <td className="px-3 py-2 text-right">₹{Number(r.installment.originalAmount).toLocaleString("en-IN")}</td>
+                      <td className="px-3 py-2 text-right">₹{Number(r.installment.paidAmount || 0).toLocaleString("en-IN")}</td>
+                      <td className="px-3 py-2 text-right font-bold">₹{Number(r.installment.outstanding).toLocaleString("en-IN")}</td>
+                      <td className="px-3 py-2">{r.installment.dueDate ? new Date(r.installment.dueDate).toLocaleDateString("en-IN") : <span className="text-amber-600">Not set</span>}<div className={r.installment.dueStatus === "Overdue" ? "text-red-600" : "text-slate-500"}>{r.installment.dueStatus}</div></td>
+                      <td className="px-3 py-2 capitalize">{String(r.installment.status).replace(/_/g, " ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {duesRows.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No due rows.</div>}
+            </div>
           </div>
         </div>
       )}

@@ -119,6 +119,13 @@ export async function POST(req: NextRequest) {
     const batchId = body.batchId ? String(body.batchId) : admission.batchId;
     if (!batchId) return NextResponse.json({ error: "Batch required for approval" }, { status: 400 });
 
+    // Fee due date (installment date) is set BY THE ADMIN at approval — required
+    const dueInput = body.dueDate ? new Date(body.dueDate) : (admission.dueDate ? new Date(admission.dueDate) : null);
+    if (!dueInput || isNaN(dueInput.getTime())) {
+      return NextResponse.json({ error: "Fee due date is required at approval" }, { status: 400 });
+    }
+    const dueDate = new Date(dueInput.getFullYear(), dueInput.getMonth(), dueInput.getDate());
+
     // 1. Create Supabase Auth user with per-student random initial password (outside DB tx)
     const initialPassword = generateInitialPassword();
     const { data: supaData, error: supaError } = await supabaseAdmin.auth.admin.createUser({
@@ -199,6 +206,7 @@ export async function POST(req: NextRequest) {
             courseEndDate: endDate,
             finalFee,
             feeLocked: true,
+            dueDate,
           },
         });
 
@@ -222,10 +230,12 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Default schedule: single installment for full balance (admin may redefine)
+        // Default schedule: ONE installment for the full fee, due on the admin-entered due date.
+        // originalAmount = full locked fee; acknowledged registration payments then flow into
+        // paidAmount via allocation, so dues shows the true remaining balance (35,000 - 10,000 = 25,000).
         const paidSoFar = splits.reduce((sum, x) => sum + x.amount, 0);
         const balance = Math.max(0, finalFee - paidSoFar);
-        const inst = await tx.installment.create({
+        await tx.installment.create({
           data: {
             admissionId: id,
             studentId: user.id,
@@ -233,9 +243,9 @@ export async function POST(req: NextRequest) {
             label: "Installment 1",
             originalAmount: finalFee,
             paidAmount: 0,
-            dueDate: addMonths(startDate, 1),
+            dueDate,
             status: balance <= 0 ? "paid" : "pending",
-            notes: "Auto-created at approval — admin may redefine the schedule",
+            notes: "Auto-created at approval — split into more installments from Student Workspace",
           },
         });
 
