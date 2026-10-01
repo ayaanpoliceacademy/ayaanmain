@@ -33,6 +33,7 @@ const ROLE_DEFAULT_TABS: Record<string, string[]> = {
 // Map API sub-path to admin tab for permission check
 const PATH_TAB_MAP: Record<string, string> = {
   complaints: "complaints",
+  "store-orders": "store-orders",
   batches: "batches",
   banner: "banner",
   admissions: "admissions",

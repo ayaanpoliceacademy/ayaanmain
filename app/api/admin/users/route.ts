@@ -6,7 +6,7 @@ import { isEmail, sanitizeText } from "@/lib/validators";
 import { audit } from "@/lib/identifiers";
 
 const ALLOWED_ROLES = ["super_admin", "finance", "admissions"];
-const ALL_TABS = ["dashboard", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel", "email", "activity", "complaints"];
+const ALL_TABS = ["dashboard", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel", "email", "activity", "complaints", "store-orders"];
 
 function sanitizePermissions(perms: any): string[] {
   if (!Array.isArray(perms)) return [];

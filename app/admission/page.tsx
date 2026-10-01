@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fallbackFee, matchFeeAmount } from "@/lib/fees";
+import { fallbackFee, matchFeeAmount, matchCourseRows } from "@/lib/fees";
 
 type Batch = { id: string; name?: string; course: string; medium: string; mode: string; branch?: string; slot?: string; days?: string; startDate: string; endDate?: string; seats: number; filled: number; availableSeats?: number };
 type Duration = { id: string; name: string; months: number };
@@ -91,7 +91,8 @@ export default function AdmissionPage() {
     // Same case-insensitive chain as the server (lib/fee-db -> matchFeeRow) so the
     // displayed estimate always equals the fee the server actually locks.
     const durName = selDuration?.name || "";
-    const hit = matchFeeAmount(feeConfigs as any, form.course, form.mode, durName, form.medium, form.branch);
+    const rows = matchCourseRows(feeConfigs as any, form.course);
+    const hit = matchFeeAmount(rows.length > 0 ? rows : feeConfigs, form.course, form.mode, durName, form.medium, form.branch);
     if (hit !== null) return hit;
     return fallbackFee(form.course, form.mode);
   }, [feeConfigs, form.course, form.mode, form.medium, form.branch, selDuration]);

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { courseDetails as fallbackDetails } from "@/data/courseDetails";
 import { dummyForCourse } from "@/lib/dummyImages";
-import { nk } from "@/lib/fees";
+import { nk, matchCourseRows } from "@/lib/fees";
 
 type Tab = "overview" | "prereq" | "notification" | "syllabus";
 type CourseDetail = (typeof fallbackDetails)[number];
@@ -57,14 +57,9 @@ export default function CoursesPage() {
   };
   const liveFeesFor = (slug: string) => {
     const key = feeKeyFor(slug);
-    // Case-insensitive course match: FeeConfig may store "Army" while the slug is "army"
-    const rows = key ? feeConfigs.filter((f) => nk(f.course) === nk(key)) : [];
-    if (rows.length === 0) {
-      // No mapped key — try matching the slug directly against FeeConfig
-      const direct = feeConfigs.filter((f) => nk(f.course) === nk(slug));
-      return direct.length > 0 ? direct : null;
-    }
-    return rows;
+    // Case-insensitive, then nearest-course match, so "Group 1" still shows the Groups fee
+    const rows = matchCourseRows(feeConfigs as any, key || slug);
+    return rows.length > 0 ? rows : null;
   };
   // Effective per-mode fees for the selected key (exact → peel branch → peel medium → peel duration → all-base)
   const norm = (v: any) => (v === undefined || v === null ? "" : String(v));

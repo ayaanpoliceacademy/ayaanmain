@@ -100,18 +100,44 @@ export async function GET(req: NextRequest) {
   if (branchFilter.error) return NextResponse.json({ error: branchFilter.error }, { status: 403 });
   const only = branchFilter.branch ? [branchFilter.branch] : null;
 
-  // Unified source: legacy manual payments + admission-flow fee payments.
-  // Registration splits become fee_payments (pending_verification) at submit and
-  // acknowledged ones (with receipts) after admin approval — both must show here.
-  const [payments, feePayments, usersCount] = await Promise.all([
-    prisma.payment.findMany({ where: only ? { branch: { in: only } } : scope.branches === null ? {} : { branch: { in: [...scope.branches, ""] } }, orderBy: { createdAt: "desc" }, take: 2000 }),
-    prisma.feePayment.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 2000,
-      include: { receipt: true },
-    }),
+  // ---- Money totals are computed with SQL aggregates, never from the loaded page ----
+  // Previously both sources were capped at 2,000 rows and the totals were summed in
+  // JS, so AR/AP silently under-reported once a campus passed that volume.
+  const legacyWhere: any = only ? { branch: { in: only } } : scope.branches === null ? {} : { branch: { in: [...scope.branches, ""] } };
+  // Fee payments inherit their campus from the admission
+  const feeWhere: any = {};
+  if (scope.branches !== null) feeWhere.admission = { branch: { in: [...scope.branches, ""] } };
+  else if (only) feeWhere.admission = { branch: { in: only } };
+
+  const [legacyAgg, feeRecvAgg, feeCollAgg, legacyCount, feeCount, usersCount] = await Promise.all([
+    prisma.payment.aggregate({ where: legacyWhere, _sum: { amount: true, paidAmount: true }, _count: { _all: true } }),
+    prisma.feePayment.aggregate({ where: { ...feeWhere, status: { notIn: ["rejected", "failed"] } }, _sum: { amount: true } }),
+    prisma.feePayment.aggregate({ where: { ...feeWhere, status: "acknowledged" }, _sum: { amount: true } }),
+    prisma.payment.count({ where: legacyWhere }),
+    prisma.feePayment.count({ where: feeWhere }),
     prisma.user.count(),
   ]);
+
+  const totalReceivable = Number(legacyAgg._sum.amount || 0) + Number(feeRecvAgg._sum.amount || 0);
+  const totalCollected = Number(legacyAgg._sum.paidAmount || 0) + Number(feeCollAgg._sum.amount || 0);
+  const grandTotal = legacyCount + feeCount;
+
+  // ---- Rows: real pagination over the unified, date-ordered feed ----
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+  const pageSize = Math.min(200, Math.max(10, parseInt(searchParams.get("size") || "50", 10) || 50));
+  const perSource = page * pageSize;
+
+  const [payments, feePayments] = await Promise.all([
+    prisma.payment.findMany({ where: legacyWhere, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.feePayment.findMany({
+      where: feeWhere,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { receipt: true },
+    }),
+  ]);
+  void perSource;
 
   // Batch-load related admissions + users for fee payment mapping (no N+1, skipped when empty)
   const admIds = Array.from(new Set(feePayments.map((p) => p.admissionId).filter(Boolean)));
@@ -196,9 +222,19 @@ export async function GET(req: NextRequest) {
     };
   }), ...scopedFee].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const totalReceivable = formatted.reduce((s: number, p: any) => s + p.receivable, 0);
-  const totalCollected = formatted.reduce((s: number, p: any) => s + p.collected, 0);
+  // Totals come from the aggregates above, NOT from this page of rows
   const totalPending = totalReceivable - totalCollected;
+  const pages = Math.max(1, Math.ceil(grandTotal / pageSize));
 
-  return NextResponse.json({ payments: formatted, totals: { totalReceivable, totalCollected, totalPending, count: formatted.length }, usersCount }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    {
+      payments: formatted,
+      totals: { totalReceivable, totalCollected, totalPending, count: grandTotal },
+      page,
+      size: pageSize,
+      pages,
+      usersCount,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

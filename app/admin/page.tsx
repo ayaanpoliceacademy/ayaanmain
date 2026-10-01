@@ -5,11 +5,11 @@ import { DonutChart, GroupedBarChart, CHART_COLORS } from "@/components/Charts";
 import ReceiptView from "@/components/ReceiptView";
 import { FALLBACK_FEE as FEE_FALLBACK } from "@/lib/fees";
 
-type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel" | "email" | "activity" | "complaints";
+type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel" | "email" | "activity" | "complaints" | "store-orders";
 type Role = "super_admin" | "finance" | "admissions";
 
 const roleTabs: Record<Role, Tab[]> = {
-  super_admin: ["dashboard", "activity", "complaints", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel"],
+  super_admin: ["dashboard", "activity", "complaints", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel", "email", "store-orders"],
   finance: ["dashboard", "activity", "payments", "finance", "dues", "expenses", "orders", "fees"],
   admissions: ["dashboard", "complaints", "admissions", "leads", "students", "alumni"],
 };
@@ -35,6 +35,8 @@ const allTabs: { id: Tab; label: string }[] = [
   { id: "carousel", label: "Carousel" },
   { id: "activity", label: "Activity Log" },
   { id: "complaints", label: "Complaints" },
+  { id: "email", label: "Email" },
+  { id: "store-orders", label: "Store Orders" },
 ];
 
 export default function AdminPage() {
@@ -339,6 +341,7 @@ if (d.mustChangePassword) setMustChange(true);
         {tab === "admins" && <AdminsTab />}
         {tab === "carousel" && <CarouselTab />}
         {tab === "email" && <EmailTab />}
+        {tab === "store-orders" && <StoreOrdersTab campus={campus} />}
         {tab === "activity" && <ActivityTab campus={campus} />}
         {tab === "complaints" && <ComplaintsTab campus={campus} />}
       </main>
@@ -2779,6 +2782,7 @@ function DuesTab({ campus = "" }: { campus?: string }) {
   const [auditTrail, setAuditTrail] = useState<any[]>([]);
   const [duesRows, setDuesRows] = useState<any[]>([]);
   const [duesTotals, setDuesTotals] = useState<any>(null);
+  const [duesTruncated, setDuesTruncated] = useState(false);
   const [allReceipts, setAllReceipts] = useState<any[]>([]);
   const [showReceipt, setShowReceipt] = useState<any>(null);
   const [ackFor, setAckFor] = useState<string | null>(null);
@@ -2835,7 +2839,7 @@ function DuesTab({ campus = "" }: { campus?: string }) {
     const p = new URLSearchParams({ due: f.due, status: f.status, scope: f.scope, branch: f.branch, course: f.course, batch: f.batch, from: f.from, to: f.to, q: f.q });
     const r = await fetch(`/api/admin/dues?${p.toString()}`, { cache: "no-store" });
     const d = await r.json().catch(() => null);
-    if (d && Array.isArray(d.rows)) { setDuesRows(d.rows); setDuesTotals(d.totals || null); setDuesLoaded(true); }
+    if (d && Array.isArray(d.rows)) { setDuesRows(d.rows); setDuesTotals(d.totals || null); setDuesTruncated(!!d.truncated); setDuesLoaded(true); }
   };
   // Any filter change (including the global campus selector) reloads dues
   useEffect(() => {
@@ -3148,6 +3152,11 @@ function DuesTab({ campus = "" }: { campus?: string }) {
           <div className="mt-4 overflow-auto border rounded-2xl max-h-[45vh]">
             <table className="w-full text-xs min-w-[1000px]">
               <thead className="bg-slate-50 sticky top-0 z-10"><tr className="text-left text-slate-500"><th className="px-3 py-2">Student</th><th className="px-3 py-2">IDs</th><th className="px-3 py-2">Course / Branch / Batch</th><th className="px-3 py-2 text-right">Total Fee</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Balance Due</th><th className="px-3 py-2">Due Date</th><th className="px-3 py-2">Status</th></tr></thead>
+              {duesTruncated && (
+                <tbody><tr><td colSpan={8} className="px-3 py-2 bg-amber-50 border-y border-amber-200 text-amber-800">
+                  ⚠ Showing a capped data set — these totals are incomplete. Filter by campus or narrow the date range.
+                </td></tr></tbody>
+              )}
               <tbody className="divide-y">
                 {duesByStudent.map((g: any) => (
                   <tr key={g.key} className="hover:bg-slate-50">
@@ -3427,6 +3436,7 @@ const ADMIN_TABS: { id: string; label: string; desc: string }[] = [
   { id: "email", label: "Email", desc: "Send updates to users (SMTP)" },
   { id: "activity", label: "Activity Log", desc: "All actions with timestamp + user" },
   { id: "complaints", label: "Complaints", desc: "Student complaint box" },
+  { id: "store-orders", label: "Store Orders", desc: "Uniform order handover" },
 ];
 
 // Global activity log: every action with timestamp and the real user name + role
@@ -3525,9 +3535,19 @@ function ActivityTab({ campus = "" }: { campus?: string }) {
         {rows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">No activity matches these filters.</div>}
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-        <span>Page {d?.page ?? 1} of {d?.pages ?? 1} • showing {rows.length}</span>
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>Page {d?.page ?? 1} of {d?.pages ?? 1} • showing {rows.length}{d?.truncated ? " • older entries beyond the scan limit are not shown" : ""} • logs kept {d?.retentionDays ?? 183} days</span>
         <span className="flex gap-2">
+          <button
+            onClick={() => {
+              const p = new URLSearchParams({ q: f.q, entity: f.entity, action: f.action, actor: f.actor, actorType: f.actorType, from: f.from, to: f.to });
+              if (campus) p.set("branch", campus);
+              window.location.href = `/api/admin/audit/export?${p.toString()}`;
+            }}
+            className="px-3 py-1.5 rounded-full border hover:bg-slate-50"
+          >
+            Export CSV
+          </button>
           <button disabled={Number(f.page) <= 1} onClick={() => setF({ ...f, page: String(Math.max(1, Number(f.page) - 1)) })} className="px-3 py-1.5 rounded-full border disabled:opacity-40">← Prev</button>
           <button disabled={Number(f.page) >= (d?.pages ?? 1)} onClick={() => setF({ ...f, page: String(Number(f.page) + 1) })} className="px-3 py-1.5 rounded-full border disabled:opacity-40">Next →</button>
         </span>
@@ -4090,6 +4110,125 @@ function CarouselTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Store orders: status flow + handover. Campus-scoped by the customer's campus.
+function StoreOrdersTab({ campus = "" }: { campus?: string }) {
+  const [d, setD] = useState<any>(null);
+  const [status, setStatus] = useState("all");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    const p = new URLSearchParams({ status });
+    if (campus) p.set("branch", campus);
+    const r = await fetch(`/api/admin/orders?${p.toString()}`, { credentials: "same-origin", cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (j) setD(j);
+  };
+  useEffect(() => { load(); }, [campus, status]);
+
+  const act = async (id: string, action: string) => {
+    setMsg(null);
+    const r = await fetch("/api/admin/orders", { credentials: "same-origin", method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { setMsg(`Updated to ${j.status}`); load(); }
+    else setMsg(j.error || "Failed");
+  };
+
+  const FLOW: Record<string, { label: string; next?: [string, string][] }> = {
+    placed: { label: "Placed", next: [["start_processing", "Start processing"], ["mark_ready", "Mark ready"], ["cancel", "Cancel"]] },
+    payment_confirmed: { label: "Payment confirmed", next: [["start_processing", "Start processing"], ["mark_ready", "Mark ready"], ["handover", "Hand over"], ["cancel", "Cancel"]] },
+    processing: { label: "Processing", next: [["mark_ready", "Mark ready"], ["handover", "Hand over"], ["cancel", "Cancel"]] },
+    ready_for_handover: { label: "Ready for handover", next: [["handover", "Hand over"], ["cancel", "Cancel"]] },
+    handed_over: { label: "Handed over", next: [["complete", "Mark completed"]] },
+    completed: { label: "Completed", next: [] },
+    cancelled: { label: "Cancelled", next: [] },
+    payment_failed: { label: "Payment failed", next: [["cancel", "Cancel"]] },
+  };
+
+  const orders: any[] = (d?.orders || []).filter((o: any) => {
+    if (!q) return true;
+    return `${o.orderNo} ${o.name} ${o.email} ${o.phone} ${(o.items || []).map((i: any) => i?.name || i?.itemName || "").join(" ")}`.toLowerCase().includes(q.toLowerCase());
+  });
+  const revenue = orders.filter((o: any) => o.paymentStatus === "success").reduce((s: number, o: any) => s + Number(o.subtotal || 0), 0);
+
+  return (
+    <div className="grid gap-4">
+      <div className="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-navy-900">Store Orders • {orders.length}</h2>
+          <p className="text-xs text-slate-500 mt-1">Uniform/stationery orders — process, hand over and close.</p>
+        </div>
+        <div className="text-xs text-slate-500">Paid revenue in view <b>₹{revenue.toLocaleString("en-IN")}</b> • new {d?.newCount ?? 0}</div>
+      </div>
+
+      <div className="card p-4 grid sm:grid-cols-4 gap-2 text-xs">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search order no, name, item…" className="px-3 py-2 rounded-lg border bg-white" />
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All statuses</option>
+          {Object.keys(FLOW).map((s) => <option key={s} value={s}>{FLOW[s].label}</option>)}
+        </select>
+        <button onClick={load} className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 self-start">Refresh</button>
+        <button onClick={() => { setQ(""); setStatus("all"); }} className="text-xs text-slate-500 hover:underline self-start text-left sm:text-right">Clear</button>
+      </div>
+
+      {msg && <div className="px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs">{msg}</div>}
+
+      <div className="grid gap-3">
+        {orders.map((o: any) => {
+          const flow = FLOW[o.status] || { label: o.status, next: [] as [string, string][] };
+          return (
+            <div key={o.id} className="card p-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <b className="text-navy-900">{o.orderNo}</b>
+                    <span className="px-2 py-0.5 rounded-full border border-slate-200 text-slate-600 text-[11px]">{flow.label}</span>
+                    <span className={`px-2 py-0.5 rounded-full border text-[11px] ${o.paymentStatus === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : o.paymentStatus === "failed" ? "bg-red-50 border-red-200 text-red-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>{String(o.paymentStatus || "pending").replace(/_/g, " ")}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{o.name} • {o.email} • {o.phone} • {new Date(o.createdAt).toLocaleString("en-IN")}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-navy-900">₹{Number(o.subtotal || 0).toLocaleString("en-IN")}</div>
+                  <div className="text-[11px] text-slate-400">{(o.items || []).length} item(s)</div>
+                </div>
+              </div>
+
+              <div className="mt-2 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+                {(o.items || []).map((i: any, k: number) => (
+                  <span key={k}>• {i.name || i.itemName} ×{i.quantity} {i.size ? `(${i.size})` : ""} ₹{Number(i.price || 0) * Number(i.quantity || 1)}</span>
+                ))}
+              </div>
+
+              {o.handedOverAt && <div className="mt-2 text-xs text-emerald-700">Handed over {new Date(o.handedOverAt).toLocaleString("en-IN")} by {o.handedOverBy || "—"}</div>}
+
+              <div className="mt-3 flex gap-1.5 flex-wrap items-center">
+                {flow.next!.map(([a, label]) => (
+                  <button key={a} onClick={() => act(o.id, a)} className={`px-3 py-1.5 rounded-full border text-xs ${a === "cancel" ? "bg-red-50 border-red-200 text-red-700" : "bg-navy-900 text-white border-navy-900"}`}>{label}</button>
+                ))}
+                <button onClick={() => setOpenId(openId === o.id ? null : o.id)} className="px-3 py-1.5 rounded-full border border-slate-200 text-xs">{openId === o.id ? "Hide timeline" : "Timeline"}</button>
+              </div>
+
+              {openId === o.id && (
+                <div className="mt-2 grid gap-1">
+                  {(o.events || []).map((e: any) => (
+                    <div key={e.id} className="text-xs p-2 rounded-lg bg-slate-50 border border-slate-100">
+                      <b>{String(e.action).replace(/_/g, " ")}</b> • {new Date(e.createdAt).toLocaleString("en-IN")} • by {e.actor}
+                      {e.note && <div className="text-slate-600">{e.note}</div>}
+                    </div>
+                  ))}
+                  {(o.events || []).length === 0 && <div className="text-xs text-slate-400">No events yet.</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {orders.length === 0 && <div className="card p-8 text-center text-sm text-slate-500">No store orders match.</div>}
+      </div>
     </div>
   );
 }

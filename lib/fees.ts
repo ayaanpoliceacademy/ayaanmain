@@ -91,10 +91,45 @@ export function fallbackFee(course: string, mode: string): number {
     }
     break;
   }
-  let base = BASE_MAP[c] ?? 15000;
+  let base = nearestCourse(c) ?? 15000;
   if (mo === nk("Residential")) base += 10000;
   if (mo === nk("Online")) base = Math.round(base * 0.6);
   return base;
+}
+
+// Course names drift ("Groups" vs "Group 1", "Army" vs "army 2"). Resolve an
+// unknown name to the closest known course so a missing FeeConfig row can never
+// silently fall back to the flat ₹15,000 default.
+export function nearestCourse(course: string): number | null {
+  const c = nk(course).replace(/[^a-z0-9]/g, "");
+  if (!c) return null;
+  for (const k of Object.keys(BASE_MAP)) {
+    if (nk(k).replace(/[^a-z0-9]/g, "") === c) return BASE_MAP[k];
+  }
+  // one contains the other, or a shared leading word ("group 1" ~ "groups")
+  const words = c.split(/[0-9]/)[0];
+  let best: { key: string; score: number } | null = null;
+  for (const k of Object.keys(BASE_MAP)) {
+    const key = nk(k).replace(/[^a-z0-9]/g, "");
+    let score = 0;
+    if (key.includes(c) || c.includes(key)) score = 2;
+    else if (words.length >= 4 && (key.startsWith(words.slice(0, 5)) || words.startsWith(key.slice(0, 5)))) score = 1;
+    if (score > 0 && (!best || score > best.score)) best = { key: k, score };
+  }
+  return best ? BASE_MAP[best.key] : null;
+}
+
+// FeeConfig rows for a course, matched leniently (exact → case-insensitive → nearest).
+export function matchCourseRows<T extends FeeRow>(rows: T[], course: string): T[] {
+  const c = nk(course);
+  const exact = rows.filter((r) => nk(r.course) === c);
+  if (exact.length > 0) return exact;
+  const base = nearestCourse(c);
+  if (base !== null) {
+    const hit = rows.find((r) => BASE_MAP[nk(r.course)] === base);
+    if (hit) return rows.filter((r) => nk(r.course) === nk(hit.course));
+  }
+  return [];
 }
 
 export function fallbackList(): { course: string; mode: string; duration: string; medium: string; branch: string; amount: number }[] {

@@ -14,12 +14,14 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(`admin_login:${ip}`, 5, 10 * 60 * 1000);
   if (!rl.allowed) {
     console.log("[auth] login rate-limited POST /api/admin/login");
+    await audit("security", "admin_login", "unknown", "login_rate_limited", `too many attempts from ${ip}`);
     return NextResponse.json({ ok: false, error: "Too many attempts — try again later" }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } });
   }
 
   const { username, email, password } = await req.json();
   const raw = String(username || email || "").trim();
   if (!raw || !password) return NextResponse.json({ ok: false, error: "Email/username and password required" }, { status: 400 });
+
 
   const emailToCheck = usernameToEmail(raw);
 
@@ -31,6 +33,7 @@ export async function POST(req: NextRequest) {
 
   if (error || !data.user) {
     console.log(`[auth] login bad-credentials POST /api/admin/login err=${error?.message || "?"}`);
+    await audit("security", "admin_login", raw.toLowerCase().slice(0, 120), "login_failed", `invalid password from ${ip}`);
     return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -48,12 +51,14 @@ export async function POST(req: NextRequest) {
     // Uniform error to prevent enumeration
     await supabase.auth.signOut();
     console.log("[auth] login no-admin-record POST /api/admin/login");
+    await audit("security", "admin_login", raw.toLowerCase().slice(0, 120), "login_failed", `authenticated but no admin record (from ${ip})`);
     return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
   }
 
   if ((admin as any).isActive === false) {
     await supabase.auth.signOut();
     console.log("[auth] login inactive POST /api/admin/login");
+    await audit("security", "admin_login", admin.email, "login_blocked", `deactivated account tried to sign in from ${ip}`);
     return NextResponse.json({ ok: false, error: "Account is deactivated — contact super admin" }, { status: 403 });
   }
 

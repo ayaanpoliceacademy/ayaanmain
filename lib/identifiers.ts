@@ -42,6 +42,25 @@ export async function audit(entity: string, entityId: string, actor: string, act
   } catch {}
 }
 
+// Admin activity logs are kept for 6 months, then pruned.
+// Called opportunistically (a few times a day) so no cron worker is required.
+const RETENTION_DAYS = 183; // ~6 months
+let lastPrune = 0;
+export async function pruneAuditLogs(force = false) {
+  const now = Date.now();
+  if (!force && now - lastPrune < 6 * 60 * 60 * 1000) return { deleted: 0, skipped: true };
+  lastPrune = now;
+  try {
+    const cutoff = new Date(now - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const res = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    return { deleted: res.count, skipped: false, retentionDays: RETENTION_DAYS };
+  } catch {
+    return { deleted: 0, skipped: true };
+  }
+}
+
+export const AUDIT_RETENTION_DAYS = RETENTION_DAYS;
+
 // Due status derived from outstanding + due date (spec §15)
 export type DueStatus = "Paid" | "Not Due" | "Due Today" | "Due Soon" | "Overdue";
 export function dueStatus(outstanding: number, dueDate: Date | string | null): DueStatus {

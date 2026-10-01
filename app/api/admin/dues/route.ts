@@ -24,7 +24,11 @@ export async function GET(req: NextRequest) {
   const to = searchParams.get("to") || "";
   const q = (searchParams.get("q") || "").toLowerCase();
 
-  // Campus scoping: clamp to the admin's assigned campuses before any query runs
+  // Explicit caps � truncation is reported, never silent (see `truncated` in the response)
+const ADMISSION_CAP = 5000;
+const INSTALLMENT_CAP = 20000;
+
+// Campus scoping: clamp to the admin's assigned campuses before any query runs
   const campus = scopeFromAuth(auth);
   const branchFilter = resolveBranchFilter(campus, requestedBranch);
   if (branchFilter.error) return NextResponse.json({ error: branchFilter.error }, { status: 403 });
@@ -40,16 +44,19 @@ export async function GET(req: NextRequest) {
         amount: true, dueDate: true, admissionStartDate: true, courseEndDate: true, approvedAt: true,
       },
       orderBy: { approvedAt: "desc" },
-      take: 5000,
+      take: ADMISSION_CAP,
     }),
-    prisma.installment.findMany({ orderBy: [{ dueDate: "asc" }], take: 20000 }),
-    prisma.feePayment.findMany({ where: { status: "acknowledged" }, select: { admissionId: true, amount: true }, take: 20000 }),
+    prisma.installment.findMany({ orderBy: [{ dueDate: "asc" }], take: INSTALLMENT_CAP }),
+    prisma.feePayment.findMany({ where: { status: "acknowledged" }, select: { admissionId: true, amount: true }, take: INSTALLMENT_CAP }),
     prisma.payment.findMany({
       select: { id: true, studentId: true, name: true, phone: true, email: true, course: true, branch: true, medium: true, mode: true, amount: true, paidAmount: true, dueDate: true, status: true },
       where: campus.branches === null ? {} : { branch: { in: campus.branches } },
-      take: 5000,
+      take: ADMISSION_CAP,
     }),
   ]);
+  // Caps exist to bound memory. If one is ever hit the money totals below would be
+  // wrong, so surface it loudly instead of silently under-reporting.
+  const truncated = admissions.length >= ADMISSION_CAP || installments.length >= INSTALLMENT_CAP;
 
   // Batch indexes (no N+1)
   const instByAdm = new Map<string, any[]>();
@@ -240,5 +247,5 @@ export async function GET(req: NextRequest) {
   totals.rows = filtered.length;
   totals.students = new Set(filtered.map((r: any) => r.admission.id)).size;
 
-  return NextResponse.json({ rows: filtered, totals }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ rows: filtered, totals, truncated, caps: { admissions: ADMISSION_CAP, installments: INSTALLMENT_CAP } }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -11,7 +11,10 @@ const SESSION_EXPIRY_DAYS = 7;
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const rl = rateLimit(`auth_login:${ip}`, 5, 10 * 60 * 1000);
-  if (!rl.allowed) return NextResponse.json({ error: "Too many attempts — try again later" }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } });
+  if (!rl.allowed) {
+    await audit("security", "student_login", "unknown", "login_rate_limited", `too many attempts from ${ip}`);
+    return NextResponse.json({ error: "Too many attempts — try again later" }, { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } });
+  }
   const { email, phone, password } = await req.json();
   const identifier = (email || phone || "").toString().trim().toLowerCase();
   if (!identifier || !password) return NextResponse.json({ error: "email/phone and password required" }, { status: 400 });
@@ -21,7 +24,10 @@ export async function POST(req: NextRequest) {
   if (!identifier.includes("@")) {
     // phone provided, lookup email
     const byPhone = await prisma.user.findFirst({ where: { phone: identifier } });
-    if (!byPhone) return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    if (!byPhone) {
+      await audit("security", "student_login", identifier.slice(0, 120), "login_failed", `unknown phone from ${ip}`);
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
     emailToCheck = byPhone.email.toLowerCase();
   }
 
@@ -32,6 +38,7 @@ export async function POST(req: NextRequest) {
   });
 
   if (error || !data.user) {
+    await audit("security", "student_login", identifier.slice(0, 120), "login_failed", `invalid password from ${ip}`);
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -42,10 +49,12 @@ export async function POST(req: NextRequest) {
   }
   if (!user) {
     await supabase.auth.signOut();
+    await audit("security", "student_login", emailToCheck.slice(0, 120), "login_failed", `authenticated but no student record (from ${ip})`);
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
   if (!user.isActive) {
     await supabase.auth.signOut();
+    await audit("security", "student_login", user.email, "login_blocked", `deactivated student tried to sign in from ${ip}`);
     return NextResponse.json({ error: "Account deactivated" }, { status: 403 });
   }
 

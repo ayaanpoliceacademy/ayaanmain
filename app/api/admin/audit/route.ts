@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { scopeFromAuth, resolveBranchFilter } from "@/lib/branch-scope";
+import { pruneAuditLogs, AUDIT_RETENTION_DAYS } from "@/lib/identifiers";
 
 // Global activity log for super_admin / finance.
 //
@@ -11,6 +12,9 @@ import { scopeFromAuth, resolveBranchFilter } from "@/lib/branch-scope";
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
   if (auth.error) return auth.error;
+
+  // Opportunistic retention sweep — keeps 6 months, rate-limited internally.
+  pruneAuditLogs().catch(() => {});
 
   const { searchParams } = new URL(req.url);
   const entity = searchParams.get("entity") || "";
@@ -134,6 +138,7 @@ export async function GET(req: NextRequest) {
       size,
       pages,
       truncated,
+      retentionDays: AUDIT_RETENTION_DAYS,
       entities: entities.map((e) => ({ value: e.entity, count: e._count._all })),
       actions: actions.map((a) => ({ value: a.action, count: a._count._all })),
       summary: {
