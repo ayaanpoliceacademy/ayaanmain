@@ -947,6 +947,7 @@ function DashboardTab({ onOrders }: { onOrders?: () => void }) {
 }
 
 function PaymentsTab() {
+  const [sub, setSub] = useState<"payments" | "receipts">("payments");
   const [data, setData] = useState<any>(null);
   const [filter, setFilter] = useState<"all" | "collected" | "pending">("all");
   const [q, setQ] = useState("");
@@ -987,6 +988,15 @@ function PaymentsTab() {
   });
   return (
     <div className="card p-6">
+      <div className="flex gap-2 mb-4 border-b border-slate-200">
+        {([["payments", `Payments (${data.payments.length})`], ["receipts", "Receipts"]] as const).map(([v, l]) => (
+          <button key={v} onClick={() => setSub(v)} className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 ${sub === v ? "border-navy-900 text-navy-900" : "border-transparent text-slate-500 hover:text-navy-900"}`}>{l}</button>
+        ))}
+      </div>
+      {sub === "receipts" ? (
+        <ReceiptsPanel />
+      ) : (
+      <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h2 className="font-semibold text-navy-900">Payments • ₹{data.totals.totalCollected.toLocaleString("en-IN")} collected / ₹{data.totals.totalReceivable.toLocaleString("en-IN")} receivable</h2>
         <div className="flex gap-2">
@@ -1059,6 +1069,147 @@ function PaymentsTab() {
         {payments.length === 0 && <div className="text-center py-8 text-sm text-slate-500">No payments match</div>}
         <div className="mt-3 text-xs text-slate-500">Balance = Future dues — Amount - Paid. Use AR dashboard for total pending.</div>
       </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+// All payment receipts by student — name, course, date paid, amount, method + proof screenshot
+function ReceiptsPanel() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [f, setF] = useState({ q: "", method: "", course: "", branch: "", from: "", to: "", legacy: "" });
+  const [courseOptions, setCourseOptions] = useState<string[]>([]);
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [view, setView] = useState<any>(null);
+
+  const load = async () => {
+    const p = new URLSearchParams({ q: f.q, method: f.method, course: f.course, branch: f.branch, from: f.from, to: f.to });
+    if (f.legacy) p.set("legacy", "1");
+    const r = await fetch(`/api/admin/receipts?${p.toString()}`, { credentials: "same-origin", cache: "no-store" });
+    const d = await r.json().catch(() => []);
+    if (Array.isArray(d)) { setRows(d); setLoaded(true); }
+  };
+
+  useEffect(() => {
+    fetch("/api/courses").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d)) setCourseOptions(Array.from(new Set(d.map((c: any) => {
+        const m = String(c.title || "").match(/\(([^)]+)\)/);
+        return m ? m[1].trim() : String(c.slug || c.title || "").trim();
+      }).filter(Boolean))) as string[]);
+    }).catch(() => {});
+    fetch("/api/branches").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setBranchOptions(d.map((b: any) => String(b.name || "")).filter(Boolean)); }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => { load(); }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f]);
+
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const withProof = rows.filter((r) => !!r.screenshot).length;
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h2 className="font-semibold text-navy-900">Receipts • {rows.length} • ₹{total.toLocaleString("en-IN")} collected</h2>
+        <div className="text-xs text-slate-500">{withProof} with payment proof</div>
+      </div>
+
+      <div className="mt-3 grid sm:grid-cols-4 gap-2 text-xs">
+        <input value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} placeholder="Search name, receipt no, txn, phone…" className="px-3 py-2 rounded-lg border bg-white" />
+        <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="">All methods</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="razorpay">Razorpay</option>
+        </select>
+        <select value={f.course} onChange={(e) => setF({ ...f, course: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All courses</option>{courseOptions.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <select value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} className="px-2 py-2 rounded-lg border bg-white"><option value="">All branches</option>{branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}</select>
+        <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className="px-2 py-2 rounded-lg border bg-white" title="Paid from" />
+        <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className="px-2 py-2 rounded-lg border bg-white" title="Paid to" />
+        <label className="flex items-center gap-1.5 px-2 py-2 rounded-lg border bg-white"><input type="checkbox" checked={f.legacy === "1"} onChange={(e) => setF({ ...f, legacy: e.target.checked ? "1" : "" })} className="accent-navy-900" /> Include manual entries</label>
+        {(f.q || f.method || f.course || f.branch || f.from || f.to || f.legacy) && <button onClick={() => setF({ q: "", method: "", course: "", branch: "", from: "", to: "", legacy: "" })} className="text-xs text-slate-500 hover:underline self-center">Clear</button>}
+      </div>
+
+      <div className="mt-4 overflow-auto border rounded-2xl max-h-[62vh]">
+        <table className="w-full text-xs min-w-[950px]">
+          <thead className="bg-slate-50 sticky top-0 z-10"><tr className="text-left text-slate-500">
+            <th className="px-3 py-2">Receipt No</th><th className="px-3 py-2">Student</th><th className="px-3 py-2">Course / Batch</th><th className="px-3 py-2">Date Paid</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Method</th><th className="px-3 py-2">Proof</th><th className="px-3 py-2"></th>
+          </tr></thead>
+          <tbody className="divide-y">
+            {rows.map((r: any) => (
+              <tr key={`${r.src}-${r.id}`} className="hover:bg-slate-50">
+                <td className="px-3 py-2 font-semibold">{r.receiptNo || <span className="text-slate-400 text-[10px]">manual</span>}</td>
+                <td className="px-3 py-2"><b>{r.studentName || "—"}</b><div className="text-slate-500">{r.studentCode || r.studentPhone || ""}</div></td>
+                <td className="px-3 py-2">{r.course || "—"}<div className="text-slate-500">{r.batchName || r.branch || ""}</div></td>
+                <td className="px-3 py-2">{new Date(r.datePaid).toLocaleDateString("en-IN")}<div className="text-slate-400">{new Date(r.datePaid).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</div></td>
+                <td className="px-3 py-2 text-right font-bold text-emerald-700">₹{Number(r.amount).toLocaleString("en-IN")}</td>
+                <td className="px-3 py-2 capitalize">{r.method || "—"}{r.transactionId && <div className="text-[10px] text-slate-400">{r.transactionId}</div>}</td>
+                <td className="px-3 py-2">{r.screenshot ? <span className="text-emerald-700">📎 Yes</span> : <span className="text-slate-400">—</span>}</td>
+                <td className="px-3 py-2"><button onClick={() => setView(r)} className="text-xs text-sky-700 hover:underline whitespace-nowrap">View Receipt</button></td>
+              </tr>
+            ))}
+          </tbody>
+          {rows.length > 0 && <tfoot className="bg-slate-50 font-bold"><tr><td className="px-3 py-2" colSpan={4}>TOTAL ({rows.length} receipts)</td><td className="px-3 py-2 text-right text-emerald-700">₹{total.toLocaleString("en-IN")}</td><td className="px-3 py-2" colSpan={3}></td></tr></tfoot>}
+        </table>
+        {rows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">{loaded ? "No receipts match these filters." : "Loading receipts…"}</div>}
+      </div>
+
+      {view && (
+        <div className="fixed inset-0 z-[80] bg-slate-900/50 p-4 overflow-auto" onClick={() => setView(null)}>
+          <div className="max-w-3xl mx-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-white font-semibold">Receipt — {view.receiptNo || "manual entry"}</h3>
+              <button onClick={() => setView(null)} className="px-4 py-2 rounded-full bg-white text-xs">Close</button>
+            </div>
+            <div className="card p-5">
+              <div className="grid sm:grid-cols-2 gap-y-2 text-sm">
+                <div><span className="text-slate-500">Student:</span> <b>{view.studentName || "—"}</b></div>
+                <div><span className="text-slate-500">Receipt No:</span> <b>{view.receiptNo || "—"}</b></div>
+                <div><span className="text-slate-500">Student ID:</span> {view.studentCode || "—"}</div>
+                <div><span className="text-slate-500">Application:</span> {view.applicationId || "—"}</div>
+                <div><span className="text-slate-500">Course:</span> {view.course || "—"} {view.mode ? `• ${view.mode}` : ""}</div>
+                <div><span className="text-slate-500">Branch/Batch:</span> {view.branch || "—"} {view.batchName || ""}</div>
+                <div><span className="text-slate-500">Date Paid:</span> {new Date(view.datePaid).toLocaleString("en-IN")}</div>
+                <div><span className="text-slate-500">Method:</span> <span className="capitalize">{view.method || "—"}</span> {view.transactionId ? `(${view.transactionId})` : ""}</div>
+                <div className="text-xl font-bold text-emerald-700">₹{Number(view.amount).toLocaleString("en-IN")}</div>
+                <div><span className="text-slate-500">Status:</span> <span className="capitalize">{String(view.status || "").replace(/_/g, " ")}</span></div>
+              </div>
+
+              {view.allocations && view.allocations.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-xs font-bold tracking-widest text-slate-500">ALLOCATED TO</div>
+                  <div className="mt-1 grid gap-1">
+                    {view.allocations.map((a: any, i: number) => (
+                      <div key={i} className="text-xs p-2 rounded-lg bg-slate-50 border flex justify-between"><span>{a.label || "Installment"}</span><b>₹{Number(a.amount).toLocaleString("en-IN")}</b></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <div className="text-xs font-bold tracking-widest text-slate-500">PAYMENT PROOF (SCREENSHOT)</div>
+                {view.screenshot ? (
+                  <a href={view.screenshot} target="_blank" rel="noreferrer" className="block mt-2">
+                    <img src={view.screenshot} alt="Payment proof" className="max-h-[420px] w-auto rounded-xl border border-slate-200 shadow-sm" />
+                    <div className="text-[11px] text-sky-700 mt-1 hover:underline">Click to open full size</div>
+                  </a>
+                ) : (
+                  <div className="text-xs text-slate-400 mt-1">No screenshot attached to this payment.</div>
+                )}
+              </div>
+
+              <div className="mt-5 pt-4 border-t grid sm:grid-cols-2 gap-6 text-xs">
+                <div><div className="border-t border-slate-400 pt-1">Student Signature</div></div>
+                <div><div className="border-t border-slate-400 pt-1">Authorised Signatory — Ayaan Institute</div></div>
+              </div>
+              <div className="mt-4 flex gap-2 justify-end">
+                <button onClick={() => window.print()} className="px-4 py-2 rounded-full bg-navy-900 text-white text-xs">Print / Save PDF</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

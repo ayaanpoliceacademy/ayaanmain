@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { fallbackFee } from "@/lib/fees";
+import { fallbackFee, matchFeeAmount } from "@/lib/fees";
 
 type Batch = { id: string; name?: string; course: string; medium: string; mode: string; branch?: string; slot?: string; days?: string; startDate: string; endDate?: string; seats: number; filled: number; availableSeats?: number };
 type Duration = { id: string; name: string; months: number };
@@ -88,23 +88,11 @@ export default function AdmissionPage() {
   }, [form.course, selDuration, form.branch]);
 
   const baseFee = useMemo(() => {
-    // Lookup order: exact (duration+medium+branch) → peel branch → peel medium → peel duration → Base → hardcoded
-    const norm = (v: any) => (v === undefined || v === null ? "" : String(v));
+    // Same case-insensitive chain as the server (lib/fee-db -> matchFeeRow) so the
+    // displayed estimate always equals the fee the server actually locks.
     const durName = selDuration?.name || "";
-    const chain: [string, string, string][] = [
-      [durName, form.medium, form.branch],
-      [durName, form.medium, ""],
-      [durName, "", ""],
-      ["", "", ""],
-    ];
-    const seen = new Set<string>();
-    for (const [d, m, b] of chain) {
-      const key = `${d}|${m}|${b}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const hit = feeConfigs.find((f) => f.course === form.course && f.mode === form.mode && norm(f.duration) === d && norm(f.medium) === m && norm(f.branch) === b);
-      if (hit) return hit.amount;
-    }
+    const hit = matchFeeAmount(feeConfigs as any, form.course, form.mode, durName, form.medium, form.branch);
+    if (hit !== null) return hit;
     return fallbackFee(form.course, form.mode);
   }, [feeConfigs, form.course, form.mode, form.medium, form.branch, selDuration]);
 

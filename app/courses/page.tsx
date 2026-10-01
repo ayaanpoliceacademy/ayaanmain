@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { courseDetails as fallbackDetails } from "@/data/courseDetails";
 import { dummyForCourse } from "@/lib/dummyImages";
+import { nk } from "@/lib/fees";
 
 type Tab = "overview" | "prereq" | "notification" | "syllabus";
 type CourseDetail = (typeof fallbackDetails)[number];
@@ -56,9 +57,14 @@ export default function CoursesPage() {
   };
   const liveFeesFor = (slug: string) => {
     const key = feeKeyFor(slug);
-    if (!key) return null;
-    const rows = feeConfigs.filter((f) => f.course === key);
-    return rows.length > 0 ? rows : null;
+    // Case-insensitive course match: FeeConfig may store "Army" while the slug is "army"
+    const rows = key ? feeConfigs.filter((f) => nk(f.course) === nk(key)) : [];
+    if (rows.length === 0) {
+      // No mapped key — try matching the slug directly against FeeConfig
+      const direct = feeConfigs.filter((f) => nk(f.course) === nk(slug));
+      return direct.length > 0 ? direct : null;
+    }
+    return rows;
   };
   // Effective per-mode fees for the selected key (exact → peel branch → peel medium → peel duration → all-base)
   const norm = (v: any) => (v === undefined || v === null ? "" : String(v));
@@ -77,7 +83,7 @@ export default function CoursesPage() {
           const k = `${d}|${m}|${b}`;
           if (seen.has(k)) continue;
           seen.add(k);
-          const row = rows.find((r) => r.mode === mode && norm(r.duration) === d && norm(r.medium) === m && norm(r.branch) === b);
+          const row = rows.find((r) => nk(r.mode) === nk(mode) && norm(r.duration) === d && norm(r.medium) === m && norm(r.branch) === b);
           if (row) {
             hit = row;
             overridden = d !== "" || m !== "" || b !== "";

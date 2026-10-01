@@ -3,27 +3,10 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { uploadDataUrl } from "@/lib/storage";
 import { newApplicationId, addMonths, audit } from "@/lib/identifiers";
-import { fallbackFee } from "@/lib/fees";
+import { resolveFee } from "@/lib/fee-db";
 import { isEmail, isPhone, sanitizeText } from "@/lib/validators";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendEmail, tplAdmissionSubmitted } from "@/lib/email";
-async function getFee(course: string, mode: string, duration?: string, medium?: string, branch?: string) {
-  try {
-    // Lookup order: exact → peel branch → peel medium → peel duration → Base ("","","") → hardcoded fallback
-    const d = duration || "", m = medium || "", b = branch || "";
-    const chain: [string, string, string][] = [[d, m, b], [d, m, ""], [d, "", ""], ["", "", ""]];
-    const seen = new Set<string>();
-    for (const [dd, mm, bb] of chain) {
-      const key = `${dd}|${mm}|${bb}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const hit = await prisma.feeConfig.findUnique({ where: { course_mode_duration_medium_branch: { course, mode, duration: dd, medium: mm, branch: bb } } });
-      if (hit) return hit.amount;
-    }
-  } catch {}
-  return fallbackFee(course, mode);
-}
-
 const SPLIT_METHODS = ["cash", "upi", "bank", "razorpay"];
 
 export async function POST(req: NextRequest) {
@@ -110,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const baseFee = await getFee(String(course), String(mode || "Residential"), durationName, String(medium || ""), String(branch || ""));
+  const baseFee = await resolveFee(String(course), String(mode || "Residential"), durationName, String(medium || ""), String(branch || ""));
   // Registration never sets discount — discount goes through approval flow
   const totalFee = baseFee + addonFees;
 
