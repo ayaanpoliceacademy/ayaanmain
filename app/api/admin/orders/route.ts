@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch } from "@/lib/branch-scope";
+import { audit } from "@/lib/identifiers";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
@@ -40,9 +41,10 @@ export async function POST(req: NextRequest) {
 
   const actor = String(auth.session.username || auth.session.name || "admin");
 
-  const setStatus = async (status: string, extra: any = {}, eventAction: string, eventNote?: string) => {
+const setStatus = async (status: string, extra: any = {}, eventAction: string, eventNote?: string) => {
     const updated = await prisma.storeOrder.update({ where: { id }, data: { status, ...extra } });
     await prisma.orderEvent.create({ data: { orderId: id, actor, action: eventAction, note: eventNote || note || null } });
+    await audit("order", id, actor, eventAction, `${order.orderNo} ${order.status} -> ${status} (${order.name})`);
     return NextResponse.json(updated);
   };
 

@@ -36,6 +36,10 @@ export default function AccountPage() {
   const [paying, setPaying] = useState(false);
   const [payMsg, setPayMsg] = useState("");
   const [rzp, setRzp] = useState<any>(null);
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [cForm, setCForm] = useState({ subject: "", message: "", category: "general", priority: "normal" });
+  const [cBusy, setCBusy] = useState(false);
+  const [cMsg, setCMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -55,7 +59,30 @@ export default function AccountPage() {
     fetch("/api/student/schedule").then((r) => r.json()).then((d) => Array.isArray(d) && setSchedule(d)).catch(() => setSchedule([]));
     fetch("/api/student/fee-payments").then((r) => r.json()).then((d) => Array.isArray(d) && setFeePayments(d)).catch(() => setFeePayments([]));
     fetch("/api/student/receipts").then((r) => r.json()).then((d) => Array.isArray(d) && setReceipts(d)).catch(() => setReceipts([]));
+    loadComplaints();
   }, [router]);
+
+  const loadComplaints = () => {
+    fetch("/api/student/complaints", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => Array.isArray(d) && setComplaints(d))
+      .catch(() => setComplaints([]));
+  };
+
+  const sendComplaint = async () => {
+    setCMsg(null);
+    if (!cForm.subject.trim()) return setCMsg({ type: "err", text: "Please add a subject" });
+    if (cForm.message.trim().length < 10) return setCMsg({ type: "err", text: "Please describe your issue (min 10 characters)" });
+    setCBusy(true);
+    const r = await fetch("/api/student/complaints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cForm) });
+    const d = await r.json().catch(() => ({}));
+    setCBusy(false);
+    if (r.ok) {
+      setCMsg({ type: "ok", text: "Complaint sent to the admin team. You will get an email reply." });
+      setCForm({ subject: "", message: "", category: "general", priority: "normal" });
+      loadComplaints();
+    } else setCMsg({ type: "err", text: d.error || "Failed to send" });
+  };
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -411,6 +438,69 @@ export default function AccountPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card mt-4 p-6">
+            <div className="font-semibold text-navy-900">Complaint Box</div>
+            <p className="text-xs text-slate-500 mt-1">Message the admin team about fees, attendance, exams, hostel, staff or anything else. You will receive an email reply, and the conversation appears below.</p>
+
+            <div className="mt-4 grid gap-3">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700">Category</label>
+                  <select value={cForm.category} onChange={(e) => setCForm({ ...cForm, category: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+                    <option value="general">General</option><option value="fees">Fees / Payment</option><option value="attendance">Attendance</option>
+                    <option value="exam">Exam / Results</option><option value="hostel">Hostel</option><option value="staff">Staff</option>
+                    <option value="website">Website / Login</option><option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700">Priority</label>
+                  <select value={cForm.priority} onChange={(e) => setCForm({ ...cForm, priority: e.target.value })} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white">
+                    <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-700">Subject *</label>
+                <input value={cForm.subject} onChange={(e) => setCForm({ ...cForm, subject: e.target.value })} placeholder="Short summary, e.g. Installment receipt not received" className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-700">Message *</label>
+                <textarea value={cForm.message} onChange={(e) => setCForm({ ...cForm, message: e.target.value })} placeholder="Explain your issue in detail — include dates, amounts or batch name if relevant." rows={4} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm" />
+              </div>
+              {cMsg && <div className={`px-3 py-2 rounded-xl border text-xs ${cMsg.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-red-50 border-red-200 text-red-600"}`}>{cMsg.text}</div>}
+              <button onClick={sendComplaint} disabled={cBusy} className="btn-primary justify-center disabled:opacity-60">{cBusy ? "Sending…" : "Send to Admin →"}</button>
+            </div>
+
+            {complaints.length > 0 && (
+              <div className="mt-6">
+                <div className="text-xs font-bold tracking-widest text-slate-500 mb-2">MY COMPLAINTS ({complaints.length})</div>
+                <div className="grid gap-2">
+                  {complaints.map((c) => (
+                    <div key={c.id} className="border border-slate-200 rounded-xl p-4 text-sm">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <b>{c.subject}</b>
+                          <div className="text-xs text-slate-500 mt-0.5 capitalize">{c.category} • {new Date(c.createdAt).toLocaleString("en-IN")}</div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          {c.priority === "high" && <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700">High</span>}
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border capitalize ${c.status === "resolved" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : c.status === "in_progress" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-sky-50 border-sky-200 text-sky-700"}`}>{String(c.status).replace(/_/g, " ")}</span>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-slate-700 whitespace-pre-wrap">{c.message}</p>
+                      {c.adminReply && (
+                        <div className="mt-3 p-3 rounded-xl bg-sky-50 border border-sky-200">
+                          <div className="text-xs font-semibold text-sky-800">Reply from Admin{c.repliedBy ? ` (${c.repliedBy})` : ""}{c.repliedAt ? ` • ${new Date(c.repliedAt).toLocaleString("en-IN")}` : ""}</div>
+                          <p className="mt-1 whitespace-pre-wrap text-slate-700">{c.adminReply}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

@@ -155,6 +155,28 @@ export function tplDiscount(a: any, action: "requested" | "approved" | "rejected
   return { subject: `Discount update — ${a.applicationId}`, html: `<h2>Hi ${esc(a.name)}</h2><p>Your discount request for <b>${esc(a.applicationId)}</b> was <b>Rejected</b>.</p><div class="meta">Current fee remains ₹${Number(a.totalFee || 0).toLocaleString("en-IN")}</div>` };
 }
 
+// ---- Student complaint box ----
+export function tplComplaintReceived(x: { studentName: string; studentCode?: string; category: string; subject: string; message: string; branch?: string }): { subject: string; html: string } {
+  return {
+    subject: `[Complaint] ${esc(x.category)} - ${esc(x.subject)} (${esc(x.studentName)})`,
+    html: `<h2>New student complaint</h2>
+<div class="meta"><b>Student:</b> ${esc(x.studentName)}${x.studentCode ? ` (${esc(x.studentCode)})` : ""}<br/><b>Campus:</b> ${esc(x.branch || "-")}<br/><b>Category:</b> ${esc(x.category)}</div>
+<h3>${esc(x.subject)}</h3>
+<p style="white-space:pre-wrap">${esc(x.message)}</p>
+<p style="color:#64748b;font-size:12px">Reply from Admin &rarr; Complaints tab.</p>`,
+  };
+}
+
+export function tplComplaintReply(x: { subject: string; reply: string; studentName?: string }): { subject: string; html: string } {
+  return {
+    subject: `Re: ${esc(x.subject)} - Ayaan Institute`,
+    html: `<h2>Hi ${esc(x.studentName || "there")}</h2>
+<p>Thank you for contacting us. Here is our reply to <b>${esc(x.subject)}</b>:</p>
+<div class="meta" style="white-space:pre-wrap">${esc(x.reply)}</div>
+<p>For anything further, reply from your Ayaan student portal.</p>`,
+  };
+}
+
 function esc(s: any): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

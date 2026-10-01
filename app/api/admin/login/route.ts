@@ -4,6 +4,7 @@ import { supabase, supabaseAdmin, usernameToEmail } from "@/lib/supabase";
 import crypto from "crypto";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { hashToken } from "@/lib/auth-helpers";
+import { audit } from "@/lib/identifiers";
 
 const SESSION_EXPIRY_DAYS = 7;
 
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
     campuses: Array.isArray((admin as any).branchIds) && admin.role !== "super_admin" ? (admin as any).branchIds : [],
     allCampuses: admin.role === "super_admin" || !(Array.isArray((admin as any).branchIds) && (admin as any).branchIds.length > 0),
   });
+  await audit("admin", admin.id, admin.email, "admin_login", `${admin.name} (${admin.role}) from ${ip}`);
   res.cookies.set("ayaan_session", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

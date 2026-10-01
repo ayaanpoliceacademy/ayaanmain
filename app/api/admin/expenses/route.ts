@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { scopeFromAuth, resolveBranchFilter, canActOn, forbidBranch, allowedBranches } from "@/lib/branch-scope";
+import { audit } from "@/lib/identifiers";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "finance"]);
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { id, title, expense, category, amount, paidBy, paymentMethod, expenseDate, dueDate, status, vendor, notes, action, branch } = body;
   const scope = scopeFromAuth(auth);
+  const actor = String(auth.session.username || auth.session.userId || "admin");
 
   // Handle approval actions (super_admin only) — before validation since action-only payload has no title/amount
   if (action && id) {
@@ -30,16 +32,10 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.expense.findUnique({ where: { id } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!canActOn(scope, existing.branch)) return forbidBranch(existing.branch);
-    if (action === "approve") {
-      const updated = await prisma.expense.update({ where: { id }, data: { status: "approved", approvedBy: auth.session.username } });
-      return NextResponse.json(updated);
-    }
-    if (action === "reject") {
-      const updated = await prisma.expense.update({ where: { id }, data: { status: "rejected", approvedBy: auth.session.username } });
-      return NextResponse.json(updated);
-    }
-    if (action === "markPaid") {
-      const updated = await prisma.expense.update({ where: { id }, data: { status: "paid", approvedBy: auth.session.username } });
+    const nextStatus = action === "approve" ? "approved" : action === "reject" ? "rejected" : action === "markPaid" ? "paid" : null;
+    if (nextStatus) {
+      const updated = await prisma.expense.update({ where: { id }, data: { status: nextStatus, approvedBy: auth.session.username } });
+      await audit("expense", id, actor, `expense_${nextStatus}`, `${existing.title} - ?${Number(existing.amount || 0).toLocaleString("en-IN")} [${existing.branch || "unassigned"}]`);
       return NextResponse.json(updated);
     }
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
@@ -88,6 +84,7 @@ export async function POST(req: NextRequest) {
         where: { id },
         data: { ...data, approvedBy: isSuper && finalStatus === "approved" ? auth.session.username : existing.approvedBy },
       });
+      await audit("expense", id, actor, "expense_updated", `${updated.title} - ?${Number(updated.amount || 0).toLocaleString("en-IN")} [${updated.branch || "unassigned"}]`);
       return NextResponse.json(updated);
     }
   }
@@ -100,6 +97,7 @@ export async function POST(req: NextRequest) {
       approvedBy: isSuper ? auth.session.username : null,
     },
   });
+  await audit("expense", item.id, actor, isSuper ? "expense_approved" : "expense_submitted", `${item.title} - ?${Number(item.amount || 0).toLocaleString("en-IN")} [${item.branch || "unassigned"}]`);
   return NextResponse.json(item);
 }
 
@@ -112,5 +110,6 @@ export async function DELETE(req: NextRequest) {
   const existing = await prisma.expense.findUnique({ where: { id } });
   if (existing && !canActOn(scopeFromAuth(auth), existing.branch)) return forbidBranch(existing.branch);
   await prisma.expense.delete({ where: { id } });
+  await audit("expense", id, String(auth.session.username || auth.session.userId || "admin"), "expense_deleted", existing ? `${existing.title} - ?${Number(existing.amount || 0).toLocaleString("en-IN")}` : "");
   return NextResponse.json({ ok: true });
 }

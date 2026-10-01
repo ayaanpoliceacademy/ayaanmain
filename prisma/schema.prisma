@@ -320,7 +320,36 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([actor])
+  @@index([action])
   @@map("audit_logs")
+}
+
+/// Student -> admin message thread ("complaint box")
+model Complaint {
+  id           String    @id @default(cuid())
+  userId       String
+  studentName  String
+  email        String
+  phone        String?
+  studentCode  String?
+  branch       String?   // campus, for routing
+  category     String    @default("general") // fees, attendance, exam, hostel, staff, website, other
+  subject      String
+  message      String
+  status       String    @default("open") // open, in_progress, resolved
+  priority     String    @default("normal") // low, normal, high
+  adminReply   String?
+  repliedBy    String?
+  repliedAt    DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("complaints")
 }
 
 model Counter {

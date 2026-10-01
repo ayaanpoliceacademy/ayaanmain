@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { supabase } from "@/lib/supabase";
+import { audit } from "@/lib/identifiers";
 import crypto from "crypto";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { hashToken } from "@/lib/auth-helpers";
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
 
   await supabase.auth.signOut();
 
+  await audit("user", user.id, user.email, "student_login", `${user.name} (${user.studentId || "no-id"})${user.branch ? ` [${user.branch}]` : ""}`);
   const res = NextResponse.json({ ok: true, mustChangePassword: !!user.mustChangePassword, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, course: user.course } });
   res.cookies.set("ayaan_session", token, {
     httpOnly: true,

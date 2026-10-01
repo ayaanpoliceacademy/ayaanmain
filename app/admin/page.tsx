@@ -5,13 +5,13 @@ import { DonutChart, GroupedBarChart, CHART_COLORS } from "@/components/Charts";
 import ReceiptView from "@/components/ReceiptView";
 import { FALLBACK_FEE as FEE_FALLBACK } from "@/lib/fees";
 
-type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel" | "email";
+type Tab = "dashboard" | "rag" | "batches" | "banner" | "admissions" | "payments" | "students" | "finance" | "leads" | "alumni" | "store" | "fees" | "expenses" | "orders" | "dues" | "masters" | "admins" | "carousel" | "email" | "activity" | "complaints";
 type Role = "super_admin" | "finance" | "admissions";
 
 const roleTabs: Record<Role, Tab[]> = {
-  super_admin: ["dashboard", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel"],
-  finance: ["dashboard", "payments", "finance", "dues", "expenses", "orders", "fees"],
-  admissions: ["dashboard", "admissions", "leads", "students", "alumni"],
+  super_admin: ["dashboard", "activity", "complaints", "store", "orders", "alumni", "leads", "payments", "students", "finance", "dues", "expenses", "admissions", "rag", "batches", "masters", "banner", "fees", "admins", "carousel"],
+  finance: ["dashboard", "activity", "payments", "finance", "dues", "expenses", "orders", "fees"],
+  admissions: ["dashboard", "complaints", "admissions", "leads", "students", "alumni"],
 };
 
 const allTabs: { id: Tab; label: string }[] = [
@@ -33,6 +33,8 @@ const allTabs: { id: Tab; label: string }[] = [
   { id: "fees", label: "Fee Config" },
   { id: "admins", label: "Admins" },
   { id: "carousel", label: "Carousel" },
+  { id: "activity", label: "Activity Log" },
+  { id: "complaints", label: "Complaints" },
 ];
 
 export default function AdminPage() {
@@ -337,6 +339,8 @@ if (d.mustChangePassword) setMustChange(true);
         {tab === "admins" && <AdminsTab />}
         {tab === "carousel" && <CarouselTab />}
         {tab === "email" && <EmailTab />}
+        {tab === "activity" && <ActivityTab campus={campus} />}
+        {tab === "complaints" && <ComplaintsTab campus={campus} />}
       </main>
     </div>
   );
@@ -2818,7 +2822,7 @@ function DuesTab({ campus = "" }: { campus?: string }) {
       fetch(`/api/admin/installments?admissionId=${a.id}`, { cache: "no-store" }).then((r) => r.json()).catch(() => []),
       fetch(`/api/admin/fee-payments?admissionId=${a.id}`, { cache: "no-store" }).then((r) => r.json()).catch(() => []),
       fetch(`/api/admin/receipts?admissionId=${a.id}`, { cache: "no-store" }).then((r) => r.json()).catch(() => []),
-      fetch(`/api/admin/audit?entity=admission&entityId=${a.id}`, { cache: "no-store" }).then((r) => r.json()).catch(() => []),
+      fetch(`/api/admin/audit?entity=admission&entityId=${a.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => d.rows || []).catch(() => []),
     ]);
     setInstallments(Array.isArray(inst) ? inst : []);
     setAdmPayments(Array.isArray(pays) ? pays : []);
@@ -2927,7 +2931,7 @@ function DuesTab({ campus = "" }: { campus?: string }) {
     if (dueHist[instId]) { const n = { ...dueHist }; delete n[instId]; setDueHist(n); return; }
     const r = await fetch(`/api/admin/audit?entity=installment&entityId=${instId}`, { cache: "no-store" });
     const d = await r.json().catch(() => []);
-    setDueHist({ ...dueHist, [instId]: Array.isArray(d) ? d : [] });
+    setDueHist({ ...dueHist, [instId]: Array.isArray(d) ? d : Array.isArray(d?.rows) ? d.rows : [] });
   };
   const delInst = async (id: string) => {
     if (!confirm("Delete installment? Only allowed when nothing is paid/allocated.")) return;
@@ -3421,7 +3425,220 @@ const ADMIN_TABS: { id: string; label: string; desc: string }[] = [
   { id: "admins", label: "Admins", desc: "Manage admin users (super_admin only)" },
   { id: "carousel", label: "Carousel", desc: "Home page carousel (super_admin only)" },
   { id: "email", label: "Email", desc: "Send updates to users (SMTP)" },
+  { id: "activity", label: "Activity Log", desc: "All actions with timestamp + user" },
+  { id: "complaints", label: "Complaints", desc: "Student complaint box" },
 ];
+
+// Global activity log: every action with timestamp and the real user name + role
+function ActivityTab({ campus = "" }: { campus?: string }) {
+  const [d, setD] = useState<any>(null);
+  const [f, setF] = useState({ q: "", entity: "all", action: "all", actor: "", actorType: "all", from: "", to: "", page: "1", size: "50" });
+  const [expanded, setExpanded] = useState<Record<string, any>>({});
+
+  const load = async () => {
+    const p = new URLSearchParams({ q: f.q, entity: f.entity, action: f.action, actor: f.actor, actorType: f.actorType, from: f.from, to: f.to, page: f.page, size: f.size });
+    if (campus) p.set("branch", campus);
+    const r = await fetch(`/api/admin/audit?${p.toString()}`, { credentials: "same-origin", cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (j && Array.isArray(j.rows)) setD(j);
+  };
+  useEffect(() => { load(); }, [campus, f.entity, f.action, f.actorType, f.from, f.to, f.page, f.size]);
+  useEffect(() => { const t = setTimeout(load, 400); return () => clearTimeout(t); }, [f.q, f.actor]);
+
+  const rows: any[] = d?.rows || [];
+  const badge = (t: string) => t === "admin" ? "bg-navy-900 text-white border-navy-900" : t === "student" ? "bg-sky-50 border-sky-200 text-sky-700" : "bg-slate-100 border-slate-200 text-slate-600";
+  const actionTone = (a: string) => {
+    const v = String(a || "");
+    if (/delete|reject|remove/.test(v)) return "bg-red-50 border-red-200 text-red-700";
+    if (/approve|acknowledged|resolved|paid|create/.test(v)) return "bg-emerald-50 border-emerald-200 text-emerald-700";
+    if (/login/.test(v)) return "bg-violet-50 border-violet-200 text-violet-700";
+    if (/update|realloc|due_date/.test(v)) return "bg-amber-50 border-amber-200 text-amber-700";
+    return "bg-slate-50 border-slate-200 text-slate-700";
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-navy-900">Activity Log • {d?.total ?? "…"} events</h2>
+          <p className="text-xs text-slate-500 mt-1">Every action across the system with timestamp, user name and whether it was an admin, a student or the system.</p>
+        </div>
+        <div className="text-xs text-slate-500">Today <b>{d?.summary?.today ?? 0}</b> • last 24h <b>{d?.summary?.last24h ?? 0}</b></div>
+      </div>
+
+      <div className="mt-3 grid sm:grid-cols-4 gap-2 text-xs">
+        <input value={f.q} onChange={(e) => setF({ ...f, q: e.target.value, page: "1" })} placeholder="Search action, entity, note…" className="px-3 py-2 rounded-lg border bg-white" />
+        <input value={f.actor} onChange={(e) => setF({ ...f, actor: e.target.value, page: "1" })} placeholder="Filter by user name/email…" className="px-3 py-2 rounded-lg border bg-white" />
+        <select value={f.actorType} onChange={(e) => setF({ ...f, actorType: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All actors</option><option value="admin">Admins</option><option value="student">Students</option><option value="system">System</option>
+        </select>
+        <select value={f.entity} onChange={(e) => setF({ ...f, entity: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All areas</option>
+          {(d?.entities || []).map((x: any) => <option key={x.value} value={x.value}>{x.value} ({x.count})</option>)}
+        </select>
+        <select value={f.action} onChange={(e) => setF({ ...f, action: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All actions</option>
+          {(d?.actions || []).map((x: any) => <option key={x.value} value={x.value}>{x.value} ({x.count})</option>)}
+        </select>
+        <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white" title="From" />
+        <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white" title="To" />
+        <select value={f.size} onChange={(e) => setF({ ...f, size: e.target.value, page: "1" })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="200">200 / page</option>
+        </select>
+        {(f.q || f.actor || f.entity !== "all" || f.action !== "all" || f.actorType !== "all" || f.from || f.to) && (
+          <button onClick={() => setF({ q: "", entity: "all", action: "all", actor: "", actorType: "all", from: "", to: "", page: "1", size: f.size })} className="text-xs text-slate-500 hover:underline self-center">Clear</button>
+        )}
+      </div>
+
+      <div className="mt-4 overflow-auto border rounded-2xl max-h-[64vh]">
+        <table className="w-full text-xs min-w-[1000px]">
+          <thead className="bg-slate-50 sticky top-0 z-10"><tr className="text-left text-slate-500">
+            <th className="px-3 py-2">When</th><th className="px-3 py-2">User</th><th className="px-3 py-2">Type</th>
+            <th className="px-3 py-2">Action</th><th className="px-3 py-2">Area</th><th className="px-3 py-2">Details</th>
+          </tr></thead>
+          <tbody className="divide-y">
+            {rows.map((r) => (
+              <tr key={r.id} className="hover:bg-slate-50 align-top">
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <div className="font-semibold">{new Date(r.createdAt).toLocaleDateString("en-IN")}</div>
+                  <div className="text-slate-500">{new Date(r.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="font-medium text-navy-900">{r.actorName}</div>
+                  <div className="text-slate-500">{r.actorEmail || r.actor}</div>
+                  {r.actorCode && <div className="text-[10px] text-slate-400">{r.actorCode}</div>}
+                </td>
+                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full border capitalize ${badge(r.actorType)}`}>{r.actorType}</span><div className="text-[10px] text-slate-400 mt-0.5 capitalize">{String(r.actorRole || "").replace(/_/g, " ")}</div></td>
+                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full border capitalize whitespace-nowrap ${actionTone(r.action)}`}>{String(r.action).replace(/_/g, " ")}</span></td>
+                <td className="px-3 py-2 capitalize">{r.entity}<div className="text-[10px] text-slate-400">{String(r.entityId).slice(0, 14)}</div></td>
+                <td className="px-3 py-2 max-w-[380px]">
+                  <div className="line-clamp-2 text-slate-600">{r.note || "—"}</div>
+                  {r.note && r.note.length > 90 && (
+                    <button onClick={() => setExpanded({ ...expanded, [r.id]: !expanded[r.id] })} className="text-[11px] text-sky-700 hover:underline mt-0.5">{expanded[r.id] ? "Show less" : "Show more"}</button>
+                  )}
+                  {expanded[r.id] && <div className="mt-1 p-2 rounded-lg bg-slate-50 border whitespace-pre-wrap text-slate-700">{r.note}</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && <div className="p-8 text-center text-xs text-slate-400">No activity matches these filters.</div>}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+        <span>Page {d?.page ?? 1} of {d?.pages ?? 1} • showing {rows.length}</span>
+        <span className="flex gap-2">
+          <button disabled={Number(f.page) <= 1} onClick={() => setF({ ...f, page: String(Math.max(1, Number(f.page) - 1)) })} className="px-3 py-1.5 rounded-full border disabled:opacity-40">← Prev</button>
+          <button disabled={Number(f.page) >= (d?.pages ?? 1)} onClick={() => setF({ ...f, page: String(Number(f.page) + 1) })} className="px-3 py-1.5 rounded-full border disabled:opacity-40">Next →</button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Student complaints inbox — reply / resolve, with the full student context
+function ComplaintsTab({ campus = "" }: { campus?: string }) {
+  const [d, setD] = useState<any>(null);
+  const [f, setF] = useState({ q: "", status: "all", category: "all" });
+  const [open, setOpen] = useState<string | null>(null);
+  const [reply, setReply] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    const p = new URLSearchParams({ q: f.q, status: f.status, category: f.category });
+    if (campus) p.set("branch", campus);
+    const r = await fetch(`/api/admin/complaints?${p.toString()}`, { credentials: "same-origin", cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (j && Array.isArray(j.rows)) setD(j);
+  };
+  useEffect(() => { load(); }, [campus, f.status, f.category]);
+  useEffect(() => { const t = setTimeout(load, 400); return () => clearTimeout(t); }, [f.q]);
+
+  const rows: any[] = d?.rows || [];
+  const save = async (id: string, body: any) => {
+    setMsg(null);
+    const r = await fetch("/api/admin/complaints", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...body }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { setMsg("Saved"); setOpen(null); load(); }
+    else setMsg(j.error || "Failed");
+  };
+
+  const st = (s: string) => s === "resolved" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : s === "in_progress" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-sky-50 border-sky-200 text-sky-700";
+
+  return (
+    <div className="grid gap-4">
+      <div className="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-navy-900">Student Complaints • {d?.counts?.total ?? 0}</h2>
+          <p className="text-xs text-slate-500 mt-1">Messages sent from the student Complaint Box. Replying emails the student automatically.</p>
+        </div>
+        <div className="flex gap-2 text-xs">
+          <span className="px-2 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700">Open {d?.counts?.open ?? 0}</span>
+          <span className="px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700">In progress {d?.counts?.in_progress ?? 0}</span>
+          <span className="px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">Resolved {d?.counts?.resolved ?? 0}</span>
+        </div>
+      </div>
+
+      <div className="card p-4 grid sm:grid-cols-4 gap-2 text-xs">
+        <input value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} placeholder="Search student, subject, message…" className="px-3 py-2 rounded-lg border bg-white" />
+        <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All status</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option>
+        </select>
+        <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} className="px-2 py-2 rounded-lg border bg-white">
+          <option value="all">All categories</option>
+          {["general", "fees", "attendance", "exam", "hostel", "staff", "website", "other"].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button onClick={() => setF({ q: "", status: "all", category: "all" })} className="text-xs text-slate-500 hover:underline self-center text-left sm:text-right">Clear</button>
+      </div>
+
+      {msg && <div className="px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs">{msg}</div>}
+
+      <div className="grid gap-3">
+        {rows.map((c) => (
+          <div key={c.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <b className="text-navy-900">{c.subject}</b>
+                  <span className={`px-2 py-0.5 rounded-full border capitalize ${st(c.status)}`}>{String(c.status).replace(/_/g, " ")}</span>
+                  <span className="px-2 py-0.5 rounded-full border border-slate-200 capitalize text-slate-600">{c.category}</span>
+                  {c.priority === "high" && <span className="px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700">High priority</span>}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  {c.studentName} {c.studentCode ? `(${c.studentCode})` : ""} • {c.email} {c.phone ? `• ${c.phone}` : ""} {c.branch ? `• ${c.branch}` : ""} • {new Date(c.createdAt).toLocaleString("en-IN")}
+                </div>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                {c.status !== "resolved" && <button onClick={() => save(c.id, { status: "resolved" })} className="px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">Mark resolved</button>}
+                {c.status === "open" && <button onClick={() => save(c.id, { status: "in_progress" })} className="px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs">Start</button>}
+                <button onClick={() => setOpen(open === c.id ? null : c.id)} className="px-3 py-1.5 rounded-full border border-slate-200 text-xs">{open === c.id ? "Close" : "Reply"}</button>
+              </div>
+            </div>
+
+            <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">{c.message}</p>
+
+            {c.adminReply && (
+              <div className="mt-3 p-3 rounded-xl bg-sky-50 border border-sky-200">
+                <div className="text-xs font-semibold text-sky-800">Reply by {c.repliedBy || "admin"}{c.repliedAt ? ` • ${new Date(c.repliedAt).toLocaleString("en-IN")}` : ""}</div>
+                <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{c.adminReply}</p>
+              </div>
+            )}
+
+            {open === c.id && (
+              <div className="mt-3 grid gap-2">
+                <textarea value={reply[c.id] || ""} onChange={(e) => setReply({ ...reply, [c.id]: e.target.value })} placeholder="Type your reply to the student…" rows={3} className="px-3 py-2.5 rounded-xl border text-sm" />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => save(c.id, { reply: reply[c.id] || "" })} className="btn-primary !py-2 !px-4 text-sm">Send reply →</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {rows.length === 0 && <div className="card p-8 text-center text-sm text-slate-500">No complaints match these filters.</div>}
+      </div>
+    </div>
+  );
+}
 
 function AdminsTab() {
   const [admins, setAdmins] = useState<any[]>([]);
