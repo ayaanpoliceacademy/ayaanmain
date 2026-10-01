@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
   // Registration splits become fee_payments (pending_verification) at submit and
   // acknowledged ones (with receipts) after admin approval — both must show here.
   const [payments, feePayments, usersCount] = await Promise.all([
-    prisma.payment.findMany({ where: only ? { branch: { in: only } } : {}, orderBy: { createdAt: "desc" }, take: 2000 }),
+    prisma.payment.findMany({ where: only ? { branch: { in: only } } : scope.branches === null ? {} : { branch: { in: [...scope.branches, ""] } }, orderBy: { createdAt: "desc" }, take: 2000 }),
     prisma.feePayment.findMany({
       orderBy: { createdAt: "desc" },
       take: 2000,
@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
   // A requested ?branch= must narrow these too — otherwise a drill-down still shows every campus.
   const scopedFee = keepBranch(
     feeMapped,
-    only ? { branches: only } : scope,
+    only ? { branches: only } : scope.branches === null ? { branches: null } : { branches: [...scope.branches, ""] },
     (p: any) => p.branch,
   );
 

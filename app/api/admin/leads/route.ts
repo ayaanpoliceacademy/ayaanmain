@@ -13,8 +13,11 @@ export async function GET(req: NextRequest) {
   const requested = resolveBranchFilter(scope, searchParams.get("branch"));
   if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
   const where: any = {};
-  if (scope.branches !== null) where.branch = { in: scope.branches };
-  else if (requested.branch) where.branch = requested.branch;
+  if (scope.branches !== null) {
+    // Blank campus = unassigned/central. Hiding those would leave campus admins
+    // with an empty Leads tab whenever leads predate campus tracking.
+    where.branch = { in: [...scope.branches, ""] };
+  } else if (requested.branch) where.branch = requested.branch;
   const leads = await prisma.lead.findMany({ where, orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(leads, { headers: { "Cache-Control": "no-store" } });
 }
@@ -61,8 +64,9 @@ export async function POST(req: NextRequest) {
 
   const { id, status, notes, freeText, employeeName, dueDate } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const lead = await prisma.lead.findUnique({ where: { id } });
+const lead = await prisma.lead.findUnique({ where: { id } });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canActOn(scopeFromAuth(auth), lead.branch)) return forbidBranch(lead.branch);
 
   const data: any = {};
   if (status !== undefined) {
@@ -88,6 +92,10 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  // Campus guard: never let a campus admin delete another campus's lead by guessing the id
+  const existing = await prisma.lead.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  if (!canActOn(scopeFromAuth(auth), existing.branch)) return forbidBranch(existing.branch);
   await prisma.lead.delete({ where: { id } });
   await audit("lead", id, auth.session.username || auth.session.userId, "delete", "Lead deleted");
   return NextResponse.json({ ok: true });
@@ -97,7 +105,7 @@ export async function PUT(req: NextRequest) {
   const auth = await requireAdminSession(req, ["super_admin", "admissions"]);
   if (auth.error) return auth.error;
   const body = await req.json();
-  const { id, name, phone, course, medium, mode, batchId, status, notes, freeText, employeeName, dueDate } = body;
+  const { id, name, phone, course, medium, mode, batchId, status, notes, freeText, employeeName, dueDate, branch } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const data: any = {};
   if (name !== undefined) data.name = sanitizeText(String(name), 100);
@@ -118,7 +126,18 @@ export async function PUT(req: NextRequest) {
   if (notes !== undefined) data.notes = notes ? sanitizeText(String(notes), 1000) : null;
   if (freeText !== undefined) data.freeText = freeText ? sanitizeText(String(freeText), 2000) : null;
   if (employeeName !== undefined) data.employeeName = employeeName ? sanitizeText(String(employeeName), 100) : null;
-  if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+  if (branch !== undefined) {
+    // Only a super_admin may move a lead between campuses
+    if (auth.session.role !== "super_admin") return NextResponse.json({ error: "Only super_admin can change a lead's campus" }, { status: 403 });
+    data.branch = branch ? String(branch).trim() : null;
+  }
+  // Campus guard on the existing record
+  {
+    const existing = await prisma.lead.findUnique({ where: { id }, select: { branch: true } });
+    if (!existing) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    if (!canActOn(scopeFromAuth(auth), existing.branch)) return forbidBranch(existing.branch);
+  }
   data.lastActionAt = new Date();
   const updated = await prisma.lead.update({ where: { id }, data });
   await audit("lead", id, auth.session.username || auth.session.userId, "update_put", JSON.stringify(Object.keys(data)));

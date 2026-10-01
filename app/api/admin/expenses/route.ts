@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const requested = resolveBranchFilter(scope, searchParams.get("branch"));
   if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
   const where: any = {};
-  if (scope.branches !== null) where.branch = { in: scope.branches };
+  if (scope.branches !== null) where.branch = { in: [...scope.branches, ""] };
   else if (requested.branch) where.branch = requested.branch;
   const expenses = await prisma.expense.findMany({ where, orderBy: { createdAt: "desc" }, take: 2000 });
   return NextResponse.json(expenses, { headers: { "Cache-Control": "no-store" } });

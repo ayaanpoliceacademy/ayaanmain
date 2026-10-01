@@ -38,13 +38,18 @@ export async function GET(req: NextRequest) {
   const requested = resolveBranchFilter(scope, searchParams.get("branch"));
   if (requested.error) return NextResponse.json({ error: requested.error }, { status: 403 });
 
-  const total = await prisma.auditLog.count({ where });
+  // NOTE: AuditLog has no branch column, so campus scoping, actor-type and text
+  // search must all be applied in memory. We therefore filter a bounded window and
+  // count AFTER filtering — otherwise `total` reports the pre-filter global count
+  // (leaking other campuses' volume) and paging skips the wrong rows entirely.
+  const SCAN_CAP = 5000;
   const logs = await prisma.auditLog.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    skip: (page - 1) * size,
-    take: size,
+    take: SCAN_CAP,
+    select: { id: true, createdAt: true, actor: true, action: true, entity: true, entityId: true, note: true },
   });
+  const truncated = logs.length >= SCAN_CAP;
 
   // ---- Resolve actor identity (admin first, then student) ----
   const actorKeys = Array.from(new Set(logs.map((l) => String(l.actor || "").trim().toLowerCase()).filter(Boolean)));
@@ -91,8 +96,9 @@ export async function GET(req: NextRequest) {
     const allowed = scope.branches.map((b) => b.toLowerCase());
     rows = rows.filter((r) => {
       if (r.actorType === "admin") return true; // admins always see the trail
-      const b = (userBy.get(String(r.actor || "").toLowerCase())?.branch || "").toLowerCase();
-      return b ? allowed.includes(b) : false;
+      const b = String(userBy.get(String(r.actor || "").toLowerCase())?.branch || "").toLowerCase();
+      // Blank campus = unassigned/central — shown to every campus admin, like the other tabs
+      return b === "" || allowed.includes(b);
     });
   }
 
@@ -104,6 +110,11 @@ export async function GET(req: NextRequest) {
   if (q) {
     rows = rows.filter((r) => `${r.actorName} ${r.actor} ${r.action} ${r.entity} ${r.entityId} ${r.note || ""}`.toLowerCase().includes(q));
   }
+
+  // Count AFTER every filter so the header, paging and rows always agree
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const paged = rows.slice((page - 1) * size, page * size);
 
   // Distinct values for the filter dropdowns
   const [entities, actions] = await Promise.all([
@@ -117,16 +128,17 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(
     {
-      rows,
+      rows: paged,
       total,
       page,
       size,
-      pages: Math.max(1, Math.ceil(total / size)),
+      pages,
+      truncated,
       entities: entities.map((e) => ({ value: e.entity, count: e._count._all })),
       actions: actions.map((a) => ({ value: a.action, count: a._count._all })),
       summary: {
-        today: logs.filter((l) => l.createdAt.getTime() >= startOfToday).length,
-        last24h: logs.filter((l) => l.createdAt.getTime() >= since24h).length,
+        today: rows.filter((r) => new Date(r.createdAt).getTime() >= startOfToday).length,
+        last24h: rows.filter((r) => new Date(r.createdAt).getTime() >= since24h).length,
       },
     },
     { headers: { "Cache-Control": "no-store" } },

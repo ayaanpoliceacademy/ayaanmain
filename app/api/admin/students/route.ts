@@ -29,12 +29,14 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { id, action, password, name, fatherName, email, phone, address, reference, branch, course, courseType, medium, mode, active } = body;
 
-  if (action === "create") {
+if (action === "create") {
     if (!name || !email || !phone || !password) return NextResponse.json({ error: "name, email, phone, password required" }, { status: 400 });
     if (!/^[0-9]{10}$/.test(String(phone))) return NextResponse.json({ error: "phone must be 10 digits" }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "password min 6 chars" }, { status: 400 });
     const exists = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (exists) return NextResponse.json({ error: "Email already exists" }, { status: 400 });
+    // Campus guard: a campus admin may only create students at their own campuses
+    if (!canActOn(scopeFromAuth(auth), branch)) return forbidBranch(branch);
 
     // Create Supabase Auth user first
     const { data: supaData, error: supaError } = await supabaseAdmin.auth.admin.createUser({
@@ -65,9 +67,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, user: stripSensitive(user) });
   }
 
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  // Campus guard: block toggle/reset/update/delete on another campus's student
+  if (!canActOn(scopeFromAuth(auth), user.branch)) return forbidBranch(user.branch);
+  // Only a super_admin may move a student between campuses
+  if (branch !== undefined && String(branch) !== String(user.branch || "") && auth.session.role !== "super_admin") {
+    return NextResponse.json({ error: "Only super_admin can move a student to another campus" }, { status: 403 });
+  }
 
   let updated: any;
   if (action === "toggleActive") {
