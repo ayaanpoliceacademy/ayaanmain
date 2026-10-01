@@ -19,8 +19,8 @@ export async function GET() {
       featured: r.featured,
       createdAt: r.createdAt.toISOString(),
     }));
-    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(data, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   } catch {
-    return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json([], { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   }
 }

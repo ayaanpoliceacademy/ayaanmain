@@ -10,8 +10,8 @@ export async function GET(req: NextRequest) {
     const course = searchParams.get("course") || "";
     const all = await prisma.addon.findMany({ where: { active: true }, orderBy: { name: "asc" } });
     const list = all.filter((a) => a.courses.length === 0 || (course && a.courses.includes(course)));
-    return NextResponse.json(list, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(list, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   } catch {
-    return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json([], { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   }
 }

@@ -12,9 +12,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const branches = await prisma.branch.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-    if (branches.length === 0) return NextResponse.json(FALLBACK, { headers: { "Cache-Control": "no-store" } });
-    return NextResponse.json(branches, { headers: { "Cache-Control": "no-store" } });
+    if (branches.length === 0) return NextResponse.json(FALLBACK, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
+    return NextResponse.json(branches, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   } catch {
-    return NextResponse.json(FALLBACK, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(FALLBACK, { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });
   }
 }

@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+// Masters are read-mostly: let the Vercel edge cache them so repeat loads skip the DB entirely
+const CACHE = "public, s-maxage=300, stale-while-revalidate=600";
+
 export async function GET() {
   try {
     const courses = await prisma.course.findMany({
@@ -12,7 +15,7 @@ export async function GET() {
     if (courses.length === 0) {
       // Fallback to hardcoded if DB empty
       const { courseDetails } = await import("@/data/courseDetails");
-      return NextResponse.json(courseDetails, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json(courseDetails, { headers: { "Cache-Control": CACHE } });
     }
     // Transform to match frontend shape
     const transformed = courses.map((c) => ({
@@ -32,9 +35,9 @@ export async function GET() {
       mode: c.modes,
       syllabus: c.syllabus.map((s) => ({ subject: s.subject, topics: s.topics })),
     }));
-    return NextResponse.json(transformed, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(transformed, { headers: { "Cache-Control": CACHE } });
   } catch (e) {
     const { courseDetails } = await import("@/data/courseDetails");
-    return NextResponse.json(courseDetails, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(courseDetails, { headers: { "Cache-Control": CACHE } });
   }
 }
