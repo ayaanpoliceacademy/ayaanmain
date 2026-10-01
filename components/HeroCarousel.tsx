@@ -71,15 +71,51 @@ const fallbackSlides: Slide[] = [
 ];
 
 export default function HeroCarousel() {
-  const [slides, setSlides] = useState<Slide[]>(fallbackSlides);
+  // null = still loading, [] = admin deleted every slide (render nothing), array = show these.
+  // The DB is the source of truth — fallback slides are used ONLY when the request fails,
+  // never when the API legitimately returns an empty list (that is how deleted slides used
+  // to keep reappearing on the homepage).
+  const [slides, setSlides] = useState<Slide[] | null>(null);
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/carousel", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`carousel ${r.status}`);
+        return r.json();
+      })
       .then((d) => {
-        if (Array.isArray(d) && d.length > 0) {
+        if (cancelled) return;
+        const mapped: Slide[] = (Array.isArray(d) ? d : []).map((s: any) => ({
+          id: s.id,
+          badge: s.badge || "",
+          title: s.title || "",
+          highlight: s.highlight || "",
+          desc: s.desc || "",
+          cta: { label: s.ctaLabel || "Learn More →", href: s.ctaHref || "/courses" },
+          cta2: s.cta2Label ? { label: s.cta2Label, href: s.cta2Href || "/contact" } : undefined,
+          image: s.image,
+          accent: s.accent || "from-sky-600 to-navy-900",
+        }));
+        setSlides(mapped);
+        setActive(0);
+      })
+      .catch(() => {
+        // Network/server failure only — fall back so the hero is never blank
+        if (!cancelled) { setSlides(fallbackSlides); setActive(0); }
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Poll so admin add/edit/delete appears without a manual refresh
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetch("/api/carousel", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (!Array.isArray(d)) return;
           const mapped: Slide[] = d.map((s: any) => ({
             id: s.id,
             badge: s.badge || "",
@@ -91,20 +127,41 @@ export default function HeroCarousel() {
             image: s.image,
             accent: s.accent || "from-sky-600 to-navy-900",
           }));
-          setSlides(mapped);
-          setActive(0);
-        }
-      })
-      .catch(() => {});
+          setSlides((prev) => {
+            if (prev === null) return mapped;
+            // only reset the active index when the set of slides actually changed
+            const same = prev.length === mapped.length && prev.every((p, i) => p.id === mapped[i].id && p.image === mapped[i].image);
+            if (!same) setActive(0);
+            return mapped;
+          });
+        })
+        .catch(() => {});
+    }, 30000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
-    if (paused || slides.length <= 1) return;
+    if (paused || !slides || slides.length <= 1) return;
     const id = setInterval(() => setActive((i) => (i + 1) % slides.length), 4000);
     return () => clearInterval(id);
-  }, [paused, slides.length]);
+  }, [paused, slides]);
 
-  const go = (i: number) => setActive((i + slides.length) % slides.length);
+  // Render nothing while loading or when every slide was deleted. Critically, the
+  // fallback slides are NOT shown here — doing so is what made deleted images
+  // "persist". A neutral skeleton keeps the layout stable without stale content.
+  if (slides === null) {
+    return (
+      <div className="relative w-full overflow-hidden bg-slate-900">
+        <div className="relative h-[62vh] sm:h-[64vh] lg:h-[68vh] min-h-[480px] max-h-[720px]">
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+  if (slides.length === 0) return null;
+
+  const list = slides;
+  const go = (i: number) => setActive((i + list.length) % list.length);
 
   return (
     <div
@@ -116,7 +173,7 @@ export default function HeroCarousel() {
     >
       {/* slides */}
       <div className="relative h-[62vh] sm:h-[64vh] lg:h-[68vh] min-h-[480px] max-h-[720px]">
-        {slides.map((s, idx) => (
+        {list.map((s, idx) => (
           <div
             key={s.id}
             className={`absolute inset-0 transition-opacity duration-700 ease-out ${idx === active ? "opacity-100 z-10" : "opacity-0 z-0"}`}
@@ -160,7 +217,7 @@ export default function HeroCarousel() {
               {/* side stats card - desktop only */}
               <div className="hidden lg:block absolute right-8 top-1/2 -translate-y-1/2 w-[340px]">
                 <div className="rounded-3xl bg-white/95 backdrop-blur border border-white/40 p-5 shadow-2xl">
-                  <div className="text-xs tracking-widest font-bold text-sky-700">WHY AYAAN • {String(idx + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</div>
+                  <div className="text-xs tracking-widest font-bold text-sky-700">WHY AYAAN • {String(idx + 1).padStart(2, "0")} / {String(list.length).padStart(2, "0")}</div>
                   <div className="mt-2 font-display font-bold text-navy-900 leading-tight">Trusted by 5000+ families since 2016</div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                     <div className="p-3 rounded-xl bg-slate-50 border"><div className="font-bold text-navy-900">9+</div><div className="text-[11px] text-slate-500">Years</div></div>
@@ -182,7 +239,7 @@ export default function HeroCarousel() {
       <div className="absolute bottom-6 left-0 right-0 z-20">
         <div className="container-soft flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {slides.map((_, i) => (
+            {list.map((_, i) => (
               <button
                 key={i}
                 onClick={() => go(i)}
@@ -190,7 +247,7 @@ export default function HeroCarousel() {
                 className={`transition-all rounded-full ${i === active ? "w-8 h-2 bg-white" : "w-2 h-2 bg-white/40 hover:bg-white/70"}`}
               />
             ))}
-            <span className="ml-3 text-xs text-white/60 hidden sm:inline">{String(active + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</span>
+            <span className="ml-3 text-xs text-white/60 hidden sm:inline">{String(active + 1).padStart(2, "0")} / {String(list.length).padStart(2, "0")}</span>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => go(active - 1)} className="w-9 h-9 rounded-full bg-white/10 border border-white/20 text-white backdrop-blur grid place-items-center hover:bg-white/15" aria-label="Previous">‹</button>
@@ -201,7 +258,7 @@ export default function HeroCarousel() {
 
       {/* top progress */}
       <div className="absolute top-0 left-0 right-0 h-[3px] bg-white/10 z-20">
-        <div className="h-full bg-white transition-all duration-500" style={{ width: `${((active + 1) / slides.length) * 100}%` }} />
+        <div className="h-full bg-white transition-all duration-500" style={{ width: `${((active + 1) / list.length) * 100}%` }} />
       </div>
     </div>
   );
