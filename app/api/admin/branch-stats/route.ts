@@ -100,10 +100,18 @@ export async function GET(req: NextRequest) {
     acc.batches += 1;
   }
 
+  // Manual fee entries (Payments tab) are receivables too. They use synthetic admissionIds
+  // so they never collide with admission fees — safe to add straight into AR.
   for (const p of legacyPayments) {
     const acc = bucket(p.branch);
-    acc.legacyReceivable += Number(p.amount || 0);
-    acc.legacyCollected += Number(p.paidAmount || 0);
+    const fee = Number(p.amount || 0);
+    const paid = Number(p.paidAmount || 0);
+    if (fee <= 0) continue;
+    acc.legacyReceivable += fee;
+    acc.legacyCollected += paid;
+    acc.receivable += fee;
+    acc.collected += paid;
+    acc.outstanding += Math.max(0, fee - paid);
   }
 
   const rows = Array.from(map.values())

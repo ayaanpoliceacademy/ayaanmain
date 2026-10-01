@@ -457,7 +457,7 @@ function BatchesTab({ campus = "" }: { campus?: string }) {
         if (names.length > 0) setBranchOptions(names);
       }
     }).catch(() => {});
-  }, []);
+  }, [campus]);
   const filtered = list.filter((b: any) => {
     if (!q) return true;
     const qq = q.toLowerCase();
@@ -590,7 +590,7 @@ function AdmissionsTab({ campus = "" }: { campus?: string }) {
         setCourseOptions(Array.from(new Set(opts)));
       }
     }).catch(() => {});
-  }, []);
+  }, [campus]);
   const isSuper = role === "super_admin";
   const togglePay = async (id: string) => {
     const next = !openPay[id];
@@ -1357,7 +1357,7 @@ function StudentsTab({ campus = "" }: { campus?: string }) {
       }
     }).catch(() => {});
     fetch("/api/mediums").then((r) => r.json()).then((d) => Array.isArray(d) && setMediumOptions(d.map((m: any) => m.name))).catch(() => {});
-  }, []);
+  }, [campus]);
   const act = async (id: string, action: string, extra: any = {}) => {
     const r = await fetch("/api/admin/students", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, ...extra }) });
     const data = await r.json();
@@ -1437,10 +1437,10 @@ function FinanceTab({ campus = "" }: { campus?: string }) {
   const [form, setForm] = useState({ title: "", category: "Rent", amount: 0, dueDate: new Date().toISOString().slice(0, 10), status: "pending", vendor: "", notes: "" });
   const loadExp = () => fetch(`/api/admin/expenses${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => Array.isArray(d) && setExpenses(d)).catch(() => {});
   const loadPay = () => fetch(`/api/admin/payments${campus ? `?branch=${encodeURIComponent(campus)}` : ""}`, { credentials: "same-origin" }).then((r) => r.json()).then((d) => setPayments(d)).catch(() => {});
-  useEffect(() => { loadExp(); loadPay(); }, []);
+  useEffect(() => { loadExp(); loadPay(); }, [campus]);
   const save = async () => {
     if (!form.title || !form.amount) return alert("Title and amount required");
-    const r = await fetch("/api/admin/expenses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const r = await fetch("/api/admin/expenses", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, branch: campus }) });
     if (r.ok) { setForm({ title: "", category: "Rent", amount: 0, dueDate: new Date().toISOString().slice(0, 10), status: "pending", vendor: "", notes: "" }); loadExp(); }
   };
   const togglePaid = async (e: any) => {
@@ -1538,7 +1538,7 @@ function LeadsTab({ campus = "" }: { campus?: string }) {
         setCourseOptions(Array.from(new Set(opts)));
       }
     }).catch(() => {});
-  }, []);
+  }, [campus]);
   const update = async (id: string, patch: any) => {
     await fetch("/api/admin/leads", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     load();
@@ -2390,7 +2390,7 @@ function ExpenseTrackerTab({ campus = "" }: { campus?: string }) {
   useEffect(() => {
     load();
     fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => setRole(d.role || "super_admin")).catch(() => {});
-  }, []);
+  }, [campus]);
   const isSuper = role === "super_admin";
   const save = async () => {
     if (!form.title.trim() || !form.amount) return alert("Expense and amount required");
@@ -2833,13 +2833,13 @@ function DuesTab({ campus = "" }: { campus?: string }) {
     const d = await r.json().catch(() => null);
     if (d && Array.isArray(d.rows)) { setDuesRows(d.rows); setDuesTotals(d.totals || null); setDuesLoaded(true); }
   };
-  // Live search: debounce the text query into an auto reload
+  // Any filter change (including the global campus selector) reloads dues
   useEffect(() => {
     if (view !== "dues" || !duesLoaded) return;
-    const t = setTimeout(() => { loadDues(); }, 400);
+    const t = setTimeout(() => { loadDues(); }, 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.q]);
+  }, [f.q, f.due, f.status, f.scope, f.branch, f.course, f.batch, f.from, f.to, campus]);
   const loadReceipts = async () => {
     const r = await fetch("/api/admin/receipts", { credentials: "same-origin",  cache: "no-store" });
     const d = await r.json().catch(() => []);
@@ -3293,7 +3293,7 @@ function OrdersTab({ campus = "" }: { campus?: string }) {
     fetch("/api/admin/login", { credentials: "same-origin" }).then((r) => r.json()).then((d) => d.role && setRole(d.role)).catch(() => {});
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [campus]);
   const isSuper = role === "super_admin";
   const act = async (id: string, action: string) => {
     const r = await fetch("/api/admin/orders", { credentials: "same-origin",  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, note: note[id] || "" }) });

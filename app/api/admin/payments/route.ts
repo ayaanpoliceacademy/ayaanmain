@@ -157,8 +157,13 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // Campus scope: fee payments carry the admission's campus, so filter after mapping
-  const scopedFee = keepBranch(feeMapped, scope, (p: any) => p.branch);
+  // Campus scope: fee payments carry the admission's campus, so filter after mapping.
+  // A requested ?branch= must narrow these too — otherwise a drill-down still shows every campus.
+  const scopedFee = keepBranch(
+    feeMapped,
+    only ? { branches: only } : scope,
+    (p: any) => p.branch,
+  );
 
   const formatted = [...payments.map((p: any) => {
     const fee = p.amount;
